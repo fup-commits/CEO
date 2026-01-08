@@ -7,7 +7,8 @@ import TaskCard from './components/TaskCard';
 import { 
   Lock, Clock, Calendar as CalendarIcon, 
   RefreshCw, TrendingUp, ShieldCheck,
-  ChevronRight, LogOut, ArrowUpRight, GripVertical
+  ChevronRight, LogOut, ArrowUpRight, GripVertical,
+  Settings, Cloud, CloudOff, Loader2
 } from 'lucide-react';
 
 const PIN_CODE = '0925';
@@ -31,9 +32,11 @@ const App: React.FC = () => {
   const [companyMails, setCompanyMails] = useState<Mail[]>([]);
   const [isLoadingNews, setIsLoadingNews] = useState(false);
   const [isLoadingMails, setIsLoadingMails] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [showSettings, setShowSettings] = useState(false);
+  const [storageUrl, setStorageUrl] = useState('');
 
-  // 대시보드 레이아웃 순서 상태
   const [layout, setLayout] = useState({
     top: ['comms'],
     left: ['tasks', 'news'],
@@ -41,6 +44,49 @@ const App: React.FC = () => {
   });
 
   const [draggedId, setDraggedId] = useState<{ id: string, section: 'top' | 'left' | 'right' } | null>(null);
+
+  // 클라우드 저장 로직
+  const syncToCloud = useCallback(async (updatedTasks: Task[], updatedLayout: any) => {
+    if (!storageUrl) return;
+    setIsSyncing(true);
+    try {
+      await fetch(storageUrl, {
+        method: 'POST',
+        mode: 'no-cors', // Apps Script 호환성
+        body: JSON.stringify({
+          tasks: updatedTasks,
+          layout: updatedLayout,
+          lastUpdated: Date.now()
+        })
+      });
+    } catch (error) {
+      console.error("Sync failed:", error);
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [storageUrl]);
+
+  // 클라우드 데이터 불러오기
+  const fetchFromCloud = useCallback(async () => {
+    if (!storageUrl) return;
+    setIsSyncing(true);
+    try {
+      const res = await fetch(storageUrl);
+      const data = await res.json();
+      if (data.tasks) {
+        setTasks(data.tasks);
+        localStorage.setItem('ceo_tasks', JSON.stringify(data.tasks));
+      }
+      if (data.layout) {
+        setLayout(data.layout);
+        localStorage.setItem('ceo_layout', JSON.stringify(data.layout));
+      }
+    } catch (error) {
+      console.error("Fetch sync failed:", error);
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [storageUrl]);
 
   useEffect(() => {
     const isUnlocked = localStorage.getItem('ceo_unlocked') === 'true';
@@ -52,9 +98,18 @@ const App: React.FC = () => {
     const savedLayout = localStorage.getItem('ceo_layout');
     if (savedLayout) setLayout(JSON.parse(savedLayout));
 
+    const savedUrl = localStorage.getItem('ceo_storage_url');
+    if (savedUrl) setStorageUrl(savedUrl);
+
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (unlocked && storageUrl) {
+      fetchFromCloud();
+    }
+  }, [unlocked, storageUrl, fetchFromCloud]);
 
   const handleUnlock = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -72,6 +127,14 @@ const App: React.FC = () => {
     localStorage.removeItem('ceo_unlocked');
   };
 
+  const saveState = (updatedTasks: Task[], updatedLayout: any) => {
+    setTasks(updatedTasks);
+    setLayout(updatedLayout);
+    localStorage.setItem('ceo_tasks', JSON.stringify(updatedTasks));
+    localStorage.setItem('ceo_layout', JSON.stringify(updatedLayout));
+    syncToCloud(updatedTasks, updatedLayout);
+  };
+
   const addTask = (text: string, type: TaskType) => {
     const newTask: Task = {
       id: Math.random().toString(36).substr(2, 9),
@@ -81,20 +144,17 @@ const App: React.FC = () => {
       createdAt: Date.now(),
     };
     const updated = [...tasks, newTask];
-    setTasks(updated);
-    localStorage.setItem('ceo_tasks', JSON.stringify(updated));
+    saveState(updated, layout);
   };
 
   const toggleTask = (id: string) => {
     const updated = tasks.map(t => t.id === id ? { ...t, completed: !t.completed } : t);
-    setTasks(updated);
-    localStorage.setItem('ceo_tasks', JSON.stringify(updated));
+    saveState(updated, layout);
   };
 
   const deleteTask = (id: string) => {
     const updated = tasks.filter(t => t.id !== id);
-    setTasks(updated);
-    localStorage.setItem('ceo_tasks', JSON.stringify(updated));
+    saveState(updated, layout);
   };
 
   const fetchMails = useCallback(async () => {
@@ -154,7 +214,8 @@ const App: React.FC = () => {
   const refreshAll = useCallback(() => {
     fetchMails();
     fetchNews();
-  }, [fetchMails, fetchNews]);
+    if (storageUrl) fetchFromCloud();
+  }, [fetchMails, fetchNews, fetchFromCloud, storageUrl]);
 
   useEffect(() => {
     if (unlocked) {
@@ -162,7 +223,6 @@ const App: React.FC = () => {
     }
   }, [unlocked, refreshAll]);
 
-  // Drag and Drop 핸들러
   const onDragStart = (id: string, section: 'top' | 'left' | 'right') => {
     setDraggedId({ id, section });
   };
@@ -183,8 +243,7 @@ const App: React.FC = () => {
     sectionList.splice(targetIndex, 0, draggedId.id);
 
     newLayout[targetSection] = sectionList;
-    setLayout(newLayout);
-    localStorage.setItem('ceo_layout', JSON.stringify(newLayout));
+    saveState(tasks, newLayout);
     setDraggedId(null);
   };
 
@@ -302,9 +361,6 @@ const App: React.FC = () => {
               Verify <ChevronRight size={16} className="group-hover:translate-x-1 transition-transform opacity-40" />
             </button>
           </form>
-          <div className="mt-12">
-            <span className="text-[8px] uppercase tracking-[0.4em] text-white/10">Private Access Only</span>
-          </div>
         </div>
       </div>
     );
@@ -320,26 +376,75 @@ const App: React.FC = () => {
             <div className="flex items-center gap-3 mb-4">
               <div className="h-1 w-1 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]"></div>
               <span className="text-[10px] uppercase tracking-[0.4em] text-white/40 font-bold">Strategic Intelligence Unit</span>
+              {isSyncing && (
+                <div className="flex items-center gap-2 text-blue-400 animate-pulse ml-4">
+                  <Loader2 size={10} className="animate-spin" />
+                  <span className="text-[8px] uppercase tracking-widest font-bold">Syncing</span>
+                </div>
+              )}
             </div>
             <h1 className="text-4xl lg:text-6xl font-black tracking-[-0.05em] text-white uppercase leading-none">
               fupglobalpartners<br/>
               <span className="text-xl lg:text-2xl font-light tracking-[0.4em] text-white/30">CEO DASHBOARD</span>
             </h1>
           </div>
-          <div className="flex flex-col md:items-end gap-2 animate-fade-up" style={{ animationDelay: '0.1s' }}>
-            <div className="flex items-center gap-3 text-white/30 font-light text-sm tracking-wide">
-              <CalendarIcon size={14} strokeWidth={1.5} />
-              {currentTime.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' })}
-            </div>
-            <div className="flex items-center gap-4 text-white text-4xl lg:text-5xl font-bold tracking-tighter">
-              <Clock size={20} className="text-white/20" />
-              {currentTime.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })}
-              <span className="text-lg text-white/20 ml-[-8px] font-light">{currentTime.toLocaleTimeString('ko-KR', { second: '2-digit' })}</span>
+          <div className="flex flex-col md:items-end gap-4 animate-fade-up">
+            <div className="flex items-center gap-4">
+               <button 
+                onClick={() => setShowSettings(!showSettings)}
+                className={`p-3 rounded-full border transition-all ${showSettings ? 'bg-white/10 border-white/30' : 'border-white/10 hover:bg-white/5'}`}
+               >
+                 <Settings size={18} className="text-white/40" />
+               </button>
+               <div className="text-right">
+                <div className="flex items-center justify-end gap-3 text-white/30 font-light text-sm tracking-wide">
+                  <CalendarIcon size={14} strokeWidth={1.5} />
+                  {currentTime.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' })}
+                </div>
+                <div className="flex items-center justify-end gap-4 text-white text-4xl lg:text-5xl font-bold tracking-tighter">
+                  {currentTime.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })}
+                </div>
+              </div>
             </div>
           </div>
         </header>
 
-        {/* 상단 섹션 (커뮤니케이션 등) */}
+        {showSettings && (
+          <div className="glass-panel p-8 mb-12 animate-fade-up border-white/20 bg-white/[0.05]">
+            <div className="flex items-center gap-4 mb-6">
+              <div className="p-2 bg-blue-500/10 rounded-lg">
+                <Cloud size={20} className="text-blue-400" />
+              </div>
+              <div>
+                <h3 className="text-xs font-bold uppercase tracking-[0.3em] text-white/80">Cloud Persistence</h3>
+                <p className="text-[10px] text-white/30 tracking-wider">Sync data across PC and Mobile via Google Apps Script</p>
+              </div>
+            </div>
+            <div className="flex gap-4">
+              <input 
+                type="text"
+                placeholder="https://script.google.com/macros/s/.../exec"
+                value={storageUrl}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setStorageUrl(val);
+                  localStorage.setItem('ceo_storage_url', val);
+                }}
+                className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs focus:outline-none focus:border-white/30 transition-all font-mono text-white/50"
+              />
+              <button 
+                onClick={() => {
+                   setShowSettings(false);
+                   refreshAll();
+                }}
+                className="bg-white/10 hover:bg-white/20 text-white px-6 rounded-xl text-[10px] font-bold uppercase tracking-widest border border-white/10 transition-all"
+              >
+                Connect & Sync
+              </button>
+            </div>
+          </div>
+        )}
+
         {layout.top.map((id) => (
           <div 
             key={id} 
@@ -357,7 +462,6 @@ const App: React.FC = () => {
         ))}
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start pb-20">
-          {/* 왼쪽 컬럼 (8/12) */}
           <div className="lg:col-span-8 space-y-4">
             {layout.left.map((id) => (
               <div 
@@ -376,7 +480,6 @@ const App: React.FC = () => {
             ))}
           </div>
 
-          {/* 오른쪽 컬럼 (4/12) */}
           <div className="lg:col-span-4 space-y-4">
             {layout.right.map((id) => (
               <div 
