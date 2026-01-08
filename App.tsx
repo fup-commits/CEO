@@ -17,9 +17,10 @@ const PIN_CODE = '0925';
 
 const DEFAULT_STORAGE_URL = 'https://script.google.com/macros/s/AKfycbzHsj5xZgL0js_7t8XXW8ksG634xp4mBGwkLJIIUbedZkYiDJEzJkaDq8m8iLUNLMVK7g/exec';
 
+// 대표님께서 제공해주신 최신 GAS URL
 const MAIL_CONFIG = {
-  personal: 'https://script.google.com/macros/s/AKfycbPt7-RQromTNCVGjk1KW9UIf9hj6voRQEjJrlmZNy_oA3CHI03apedJWrDCbvpUU9njg/exec',
-  company: 'https://script.google.com/macros/s/AKfycbyXlpoE7c6MGH-uzEBwsTzoEVZf_GNBvJGe-gSRBk_uaZdl6TIDpglDqS6uamBQ5XAQ/exec'
+  company: 'https://script.google.com/macros/s/AKfycbyXlpoE7c6MGH-uzEBwsTzoEVZf_GNBvJGe-gSRBk_uaZdl6TIDpglDqS6uamBQ5XAQ/exec',
+  personal: 'https://script.google.com/macros/s/AKfycbxPt7-RQromTNCVGjk1KW9UIf9hj6voRQEjJrlmZNy_oA3CHI03apedJWrDCbvpUU9njg/exec'
 };
 
 const NEWS_SOURCES = [
@@ -37,6 +38,7 @@ const App: React.FC = () => {
   const [companyMails, setCompanyMails] = useState<Mail[]>([]);
   const [isLoadingNews, setIsLoadingNews] = useState(false);
   const [isLoadingMails, setIsLoadingMails] = useState(false);
+  const [mailError, setMailError] = useState<string | null>(null);
   const [isLoadingCalendar, setIsLoadingCalendar] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState<number | null>(null);
@@ -125,7 +127,7 @@ const App: React.FC = () => {
   const handleGoogleLogin = () => {
     const trimmedId = googleClientId.trim();
     if (!isValidClientId(trimmedId)) {
-      alert("⚠️ 잘못된 클라이언트 ID입니다.\n\n입력하신 'whynot'은 ID가 아닙니다. 구글 클라우드 콘솔에서 발급받은 '12345-abcde.apps.googleusercontent.com' 형식의 전체 문자열을 입력해주세요.");
+      alert("⚠️ 올바른 클라이언트 ID를 입력해주세요.");
       return;
     }
 
@@ -144,7 +146,7 @@ const App: React.FC = () => {
       });
       client.requestAccessToken();
     } catch (e) {
-      alert("인증 시스템 초기화 실패. Client ID를 확인해주세요.");
+      alert("인증 시스템 초기화 실패.");
     }
   };
 
@@ -288,17 +290,25 @@ const App: React.FC = () => {
 
   const fetchMails = useCallback(async () => {
     setIsLoadingMails(true);
+    setMailError(null);
     try {
       const fetchSet = async (url: string) => {
-        const res = await fetch(url);
-        const data = await res.json();
-        return (data || []).map((m: any, idx: number) => ({
-          id: `mail-${idx}-${Date.now()}`,
-          from: m.from.split('<')[0].replace(/"/g, '').trim(),
-          subject: m.subject,
-          link: m.link,
-          isNaver: m.from.includes('@naver')
-        }));
+        try {
+          const res = await fetch(url);
+          if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+          const data = await res.json();
+          return (data || []).map((m: any, idx: number) => ({
+            id: `mail-${idx}-${Date.now()}`,
+            from: m.from ? m.from.split('<')[0].replace(/"/g, '').trim() : "Unknown Sender",
+            subject: m.subject || "(No Subject)",
+            link: m.link || "#",
+            // 발신자 이메일에 'naver.com'이 포함되어 있으면 네이버 메일로 표시
+            isNaver: m.from ? m.from.toLowerCase().includes('naver.com') : false
+          }));
+        } catch (e) {
+          console.error("Single mail fetch failed:", e);
+          throw e;
+        }
       };
       const [pMails, cMails] = await Promise.all([
         fetchSet(MAIL_CONFIG.personal),
@@ -307,7 +317,8 @@ const App: React.FC = () => {
       setPersonalMails(pMails);
       setCompanyMails(cMails);
     } catch (error) {
-      console.error(error);
+      console.error("Mail fetching error:", error);
+      setMailError("최근 메일을 가져오는 중에 오류가 발생했습니다. 구글 앱스 스크립트 할당량을 확인해주세요.");
     } finally {
       setIsLoadingMails(false);
     }
@@ -386,16 +397,21 @@ const App: React.FC = () => {
               <div className="flex items-center gap-3">
                 <ShieldCheck size={16} className="text-blue-400/60" />
                 <h2 className="text-[11px] font-bold tracking-[0.4em] text-white/40 uppercase">Communications</h2>
+                {mailError && (
+                  <div className="flex items-center gap-1.5 text-red-400/80 text-[10px] bg-red-400/5 px-3 py-1 rounded-full border border-red-400/10">
+                    <AlertCircle size={10} /> Sync Error
+                  </div>
+                )}
               </div>
               <button onClick={refreshAll} className="text-white/20 hover:text-white transition-colors">
                 <RefreshCw size={14} className={isLoadingMails ? 'animate-spin' : ''} />
               </button>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              <MailCard title="Work Gmail" mails={companyMails} isLoading={isLoadingMails} />
-              <MailCard title="Personal Gmail" mails={personalMails} isLoading={isLoadingMails} />
-              <MailCard title="Work Naver" mails={companyMails.filter(m => m.isNaver)} isLoading={isLoadingMails} isNaverAuto />
-              <MailCard title="Personal Naver" mails={personalMails.filter(m => m.isNaver)} isLoading={isLoadingMails} isNaverAuto />
+              <MailCard title="Work Gmail" mails={companyMails.filter(m => !m.isNaver)} isLoading={isLoadingMails} error={mailError} />
+              <MailCard title="Personal Gmail" mails={personalMails.filter(m => !m.isNaver)} isLoading={isLoadingMails} error={mailError} />
+              <MailCard title="Work Naver" mails={companyMails.filter(m => m.isNaver)} isLoading={isLoadingMails} error={mailError} isNaverAuto />
+              <MailCard title="Personal Naver" mails={personalMails.filter(m => m.isNaver)} isLoading={isLoadingMails} error={mailError} isNaverAuto />
             </div>
           </section>
         );
@@ -602,11 +618,10 @@ const App: React.FC = () => {
                 </div>
                 
                 <div className="flex flex-col gap-4">
-                  {/* Step 1: Embed URL - Easiest way */}
                   <div className="flex flex-col gap-2">
                     <div className="flex items-center justify-between">
                        <div className="flex items-center gap-2 text-[10px] font-bold text-white/40 uppercase">
-                        <Link size={10} /> 1. Live Feed URL (가장 빠른 방법)
+                        <Link size={10} /> 1. Live Feed URL (공개 URL)
                       </div>
                       {googleCalendarUrl && (
                         <div className="flex items-center gap-1 text-[8px] text-emerald-400 font-bold">
@@ -625,20 +640,15 @@ const App: React.FC = () => {
                       }}
                       className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-[10px] focus:outline-none focus:border-white/30 transition-all font-mono text-white/50"
                     />
-                    <p className="text-[8px] text-white/20 px-1 italic">보내주신 공개 URL을 여기에 넣으시면 대시보드에서 즉시 보입니다.</p>
                   </div>
 
                   <div className="h-[1px] bg-white/5 my-2"></div>
 
-                  {/* Step 2: OAuth API - Complex way */}
                   <div className="flex flex-col gap-2">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2 text-[10px] font-bold text-white/40 uppercase">
-                        <Key size={10} /> 2. API Sync (Styled View용)
+                        <Key size={10} /> 2. API Sync (OAuth ID)
                       </div>
-                      <a href="https://console.cloud.google.com/apis/credentials" target="_blank" className="flex items-center gap-1 text-[8px] text-blue-400/60 hover:text-blue-400 underline uppercase font-bold">
-                        발급 가이드 <HelpCircle size={8} />
-                      </a>
                     </div>
                     <div className="relative">
                       <input 
@@ -652,11 +662,6 @@ const App: React.FC = () => {
                         }}
                         className={`w-full bg-white/5 border rounded-xl px-4 py-3 text-[10px] focus:outline-none transition-all font-mono text-white/50 ${googleClientId && !isValidClientId(googleClientId) ? 'border-red-500/50' : 'border-white/10 focus:border-white/30'}`}
                       />
-                      {googleClientId && !isValidClientId(googleClientId) && (
-                        <div className="absolute -bottom-5 left-0 flex items-center gap-1 text-red-500 text-[8px] font-bold animate-pulse">
-                          <AlertCircle size={8} /> ⚠️ 'whynot'은 ID가 아닙니다. 전체 문자열을 넣으세요.
-                        </div>
-                      )}
                     </div>
                   </div>
                   
@@ -679,11 +684,16 @@ const App: React.FC = () => {
                         </div>
                         <button onClick={handleGoogleLogout} className="p-2 text-white/20 hover:text-red-400"><LogOut size={16} /></button>
                       </div>
-                      <button onClick={() => accessToken && fetchGoogleCalendarEvents(accessToken)} className="bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 py-2 rounded-lg text-[9px] font-bold uppercase border border-purple-500/10 transition-all flex items-center justify-center gap-2">
-                        <RefreshCw size={10} className={isLoadingCalendar ? 'animate-spin' : ''} /> Refresh API Data
-                      </button>
                     </div>
                   )}
+                  <div className="bg-emerald-400/5 p-4 rounded-xl border border-emerald-400/10 space-y-2">
+                    <p className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest flex items-center gap-2">
+                      <MailIcon size={12} /> Naver Mail Intelligence
+                    </p>
+                    <p className="text-[9px] text-white/30 leading-relaxed">
+                      네이버 메일을 지메일의 <strong>'외부 메일 가져오기'</strong> 기능을 통해 연동해 두시면, 대시보드가 발신 도메인을 분석하여 자동으로 네이버 칸에 분류합니다. 가장 빠르고 효율적인 통합 방법입니다.
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>

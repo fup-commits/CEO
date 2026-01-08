@@ -1,27 +1,29 @@
 
 import React from 'react';
 import { Mail } from '../types';
-import { Mail as MailIcon, ExternalLink, ArrowRight } from 'lucide-react';
+import { Mail as MailIcon, ExternalLink, ArrowRight, AlertCircle, RefreshCw } from 'lucide-react';
 
 interface MailCardProps {
   title: string;
   mails: Mail[];
   isLoading: boolean;
+  error?: string | null;
   isNaverAuto?: boolean;
 }
 
-const MailCard: React.FC<MailCardProps> = ({ title, mails, isLoading, isNaverAuto }) => {
+const MailCard: React.FC<MailCardProps> = ({ title, mails, isLoading, error, isNaverAuto }) => {
   return (
-    <div className="glass-panel p-6 flex flex-col h-[300px]">
+    <div className={`glass-panel p-6 flex flex-col h-[300px] transition-all ${error ? 'border-red-500/20' : ''}`}>
       <div className="flex items-center justify-between mb-8">
         <h3 className="text-[10px] font-bold tracking-[0.2em] text-white/40 uppercase flex items-center gap-2">
           {title}
         </h3>
-        {mails.length > 0 && (
+        {mails.length > 0 && !error && (
           <span className="text-[9px] font-bold bg-white text-black px-2 py-0.5 rounded-sm">
             {mails.length}
           </span>
         )}
+        {error && <AlertCircle size={12} className="text-red-400 opacity-60" />}
       </div>
 
       <div className="flex-1 overflow-y-auto space-y-5 pr-1 custom-scrollbar">
@@ -29,6 +31,17 @@ const MailCard: React.FC<MailCardProps> = ({ title, mails, isLoading, isNaverAut
           <div className="h-full flex flex-col justify-center space-y-4">
             <div className="h-4 w-2/3 bg-white/5 animate-pulse rounded"></div>
             <div className="h-3 w-full bg-white/5 animate-pulse rounded"></div>
+            <div className="h-3 w-3/4 bg-white/5 animate-pulse rounded"></div>
+          </div>
+        ) : error ? (
+          <div className="h-full flex flex-col items-center justify-center text-center px-4">
+            <AlertCircle size={24} strokeWidth={1} className="mb-3 text-red-400 opacity-40" />
+            <p className="text-[9px] text-white/40 leading-relaxed uppercase tracking-widest mb-4">
+              Sync Failed
+            </p>
+            <p className="text-[8px] text-white/20 leading-relaxed italic">
+              구글 스크립트 연동에<br/>문제가 발생했습니다.
+            </p>
           </div>
         ) : mails.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center opacity-20">
