@@ -10,14 +10,14 @@ import {
   RefreshCw, TrendingUp, ShieldCheck,
   ChevronRight, LogOut, ArrowUpRight, GripVertical,
   Settings, Cloud, CloudOff, Loader2, CheckCircle2,
-  User, Mail as MailIcon, Key, AlertCircle, Info, Link, HelpCircle
+  User, Mail as MailIcon, Key, AlertCircle, Info, Link, HelpCircle,
+  Sun, Moon
 } from 'lucide-react';
 
 const PIN_CODE = '0925';
-
 const DEFAULT_STORAGE_URL = 'https://script.google.com/macros/s/AKfycbzHsj5xZgL0js_7t8XXW8ksG634xp4mBGwkLJIIUbedZkYiDJEzJkaDq8m8iLUNLMVK7g/exec';
+const DEFAULT_CALENDAR_URL = 'https://calendar.google.com/calendar/embed?src=fup%40fupglobalpartners.com&ctz=Asia%2FSeoul';
 
-// 대표님께서 제공해주신 최신 GAS URL
 const MAIL_CONFIG = {
   company: 'https://script.google.com/macros/s/AKfycbyXlpoE7c6MGH-uzEBwsTzoEVZf_GNBvJGe-gSRBk_uaZdl6TIDpglDqS6uamBQ5XAQ/exec',
   personal: 'https://script.google.com/macros/s/AKfycbxPt7-RQromTNCVGjk1KW9UIf9hj6voRQEjJrlmZNy_oA3CHI03apedJWrDCbvpUU9njg/exec'
@@ -31,6 +31,7 @@ const NEWS_SOURCES = [
 const App: React.FC = () => {
   const [unlocked, setUnlocked] = useState(false);
   const [pin, setPin] = useState('');
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [tasks, setTasks] = useState<Task[]>([]);
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
   const [news, setNews] = useState<NewsItem[]>([]);
@@ -46,9 +47,8 @@ const App: React.FC = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [storageUrl, setStorageUrl] = useState(DEFAULT_STORAGE_URL);
   
-  // 구글 연동 상태
   const [googleClientId, setGoogleClientId] = useState('');
-  const [googleCalendarUrl, setGoogleCalendarUrl] = useState('');
+  const [googleCalendarUrl, setGoogleCalendarUrl] = useState(DEFAULT_CALENDAR_URL);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [googleUser, setGoogleUser] = useState<{name: string, email: string, picture: string} | null>(null);
 
@@ -60,15 +60,25 @@ const App: React.FC = () => {
 
   const [draggedId, setDraggedId] = useState<{ id: string, section: 'top' | 'left' | 'right' } | null>(null);
 
-  const isValidClientId = (id: string) => {
-    return id.trim().endsWith('.apps.googleusercontent.com');
-  };
+  useEffect(() => {
+    const root = window.document.documentElement;
+    if (theme === 'dark') {
+      root.classList.add('dark');
+      root.classList.remove('light');
+    } else {
+      root.classList.add('light');
+      root.classList.remove('dark');
+    }
+  }, [theme]);
+
+  const toggleTheme = () => setTheme(prev => prev === 'dark' ? 'light' : 'dark');
+
+  const isValidClientId = (id: string) => id.trim().endsWith('.apps.googleusercontent.com');
 
   const extractCalendarIdFromUrl = (url: string) => {
     try {
       const u = new URL(url);
-      const src = u.searchParams.get('src');
-      return src || "";
+      return u.searchParams.get('src') || "";
     } catch (e) {
       return "";
     }
@@ -81,14 +91,11 @@ const App: React.FC = () => {
       const now = new Date().toISOString();
       const res = await fetch(
         `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calId)}/events?timeMin=${now}&maxResults=20&orderBy=startTime&singleEvents=true`,
-        {
-          headers: { Authorization: `Bearer ${token}` }
-        }
+        { headers: { Authorization: `Bearer ${token}` } }
       );
       const data = await res.json();
-      
       if (data.items) {
-        const formattedEvents: CalendarEvent[] = data.items.map((item: any) => ({
+        setCalendarEvents(data.items.map((item: any) => ({
           id: item.id,
           title: item.summary,
           start: item.start.dateTime || item.start.date,
@@ -96,11 +103,10 @@ const App: React.FC = () => {
           location: item.location,
           description: item.description,
           color: item.colorId ? '#60a5fa' : '#3b82f6'
-        }));
-        setCalendarEvents(formattedEvents);
+        })));
       }
     } catch (error) {
-      console.error("Google Calendar API Error:", error);
+      console.error("Calendar Error:", error);
     } finally {
       setIsLoadingCalendar(false);
     }
@@ -112,11 +118,7 @@ const App: React.FC = () => {
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await res.json();
-      const user = {
-        name: data.name,
-        email: data.email,
-        picture: data.picture
-      };
+      const user = { name: data.name, email: data.email, picture: data.picture };
       setGoogleUser(user);
       localStorage.setItem('ceo_google_user', JSON.stringify(user));
     } catch (error) {
@@ -125,35 +127,24 @@ const App: React.FC = () => {
   }, []);
 
   const handleGoogleLogin = () => {
-    const trimmedId = googleClientId.trim();
-    if (!isValidClientId(trimmedId)) {
-      alert("⚠️ 올바른 클라이언트 ID를 입력해주세요.");
-      return;
-    }
-
-    try {
-      const client = (window as any).google.accounts.oauth2.initTokenClient({
-        client_id: trimmedId,
-        scope: 'https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
-        callback: (response: any) => {
-          if (response.access_token) {
-            setAccessToken(response.access_token);
-            localStorage.setItem('ceo_google_token', response.access_token);
-            fetchGoogleUserInfo(response.access_token);
-            fetchGoogleCalendarEvents(response.access_token);
-          }
-        },
-      });
-      client.requestAccessToken();
-    } catch (e) {
-      alert("인증 시스템 초기화 실패.");
-    }
+    const client = (window as any).google.accounts.oauth2.initTokenClient({
+      client_id: googleClientId.trim(),
+      scope: 'https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
+      callback: (response: any) => {
+        if (response.access_token) {
+          setAccessToken(response.access_token);
+          localStorage.setItem('ceo_google_token', response.access_token);
+          fetchGoogleUserInfo(response.access_token);
+          fetchGoogleCalendarEvents(response.access_token);
+        }
+      },
+    });
+    client.requestAccessToken();
   };
 
   const handleGoogleLogout = () => {
     setAccessToken(null);
     setGoogleUser(null);
-    setCalendarEvents([]);
     localStorage.removeItem('ceo_google_token');
     localStorage.removeItem('ceo_google_user');
   };
@@ -163,22 +154,16 @@ const App: React.FC = () => {
     setIsSyncing(true);
     try {
       await fetch(storageUrl, {
-        method: 'POST',
-        mode: 'no-cors', 
-        body: JSON.stringify({
-          tasks: updatedTasks,
-          layout: updatedLayout,
-          lastUpdated: Date.now(),
-          userEmail: googleUser?.email || 'anonymous'
-        })
+        method: 'POST', mode: 'no-cors', 
+        body: JSON.stringify({ tasks: updatedTasks, layout: updatedLayout, lastUpdated: Date.now() })
       });
       setLastSyncTime(Date.now());
     } catch (error) {
-      console.error("Sync failed:", error);
+      console.error("Sync Error:", error);
     } finally {
       setTimeout(() => setIsSyncing(false), 1000);
     }
-  }, [storageUrl, googleUser]);
+  }, [storageUrl]);
 
   const fetchFromCloud = useCallback(async () => {
     if (!storageUrl) return;
@@ -196,7 +181,7 @@ const App: React.FC = () => {
       }
       setLastSyncTime(Date.now());
     } catch (error) {
-      console.error("Fetch sync failed:", error);
+      console.error("Fetch Error:", error);
     } finally {
       setTimeout(() => setIsSyncing(false), 1000);
     }
@@ -219,7 +204,7 @@ const App: React.FC = () => {
     if (savedClientId) setGoogleClientId(savedClientId);
 
     const savedCalendarUrl = localStorage.getItem('ceo_google_calendar_url');
-    if (savedCalendarUrl) setGoogleCalendarUrl(savedCalendarUrl);
+    setGoogleCalendarUrl(savedCalendarUrl || DEFAULT_CALENDAR_URL);
 
     const savedToken = localStorage.getItem('ceo_google_token');
     const savedUser = localStorage.getItem('ceo_google_user');
@@ -248,7 +233,7 @@ const App: React.FC = () => {
       setUnlocked(true);
       localStorage.setItem('ceo_unlocked', 'true');
     } else {
-      alert('Security violation: Incorrect PIN');
+      alert('Access Denied');
       setPin('');
     }
   };
@@ -267,58 +252,33 @@ const App: React.FC = () => {
   };
 
   const addTask = (text: string, type: TaskType) => {
-    const newTask: Task = {
-      id: Math.random().toString(36).substr(2, 9),
-      text,
-      completed: false,
-      type,
-      createdAt: Date.now(),
-    };
-    const updated = [...tasks, newTask];
-    saveState(updated, layout);
+    const newTask: Task = { id: Math.random().toString(36).substr(2, 9), text, completed: false, type, createdAt: Date.now() };
+    saveState([...tasks, newTask], layout);
   };
 
-  const toggleTask = (id: string) => {
-    const updated = tasks.map(t => t.id === id ? { ...t, completed: !t.completed } : t);
-    saveState(updated, layout);
-  };
-
-  const deleteTask = (id: string) => {
-    const updated = tasks.filter(t => t.id !== id);
-    saveState(updated, layout);
-  };
+  const toggleTask = (id: string) => saveState(tasks.map(t => t.id === id ? { ...t, completed: !t.completed } : t), layout);
+  const deleteTask = (id: string) => saveState(tasks.filter(t => t.id !== id), layout);
 
   const fetchMails = useCallback(async () => {
     setIsLoadingMails(true);
     setMailError(null);
     try {
       const fetchSet = async (url: string) => {
-        try {
-          const res = await fetch(url);
-          if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-          const data = await res.json();
-          return (data || []).map((m: any, idx: number) => ({
-            id: `mail-${idx}-${Date.now()}`,
-            from: m.from ? m.from.split('<')[0].replace(/"/g, '').trim() : "Unknown Sender",
-            subject: m.subject || "(No Subject)",
-            link: m.link || "#",
-            // 발신자 이메일에 'naver.com'이 포함되어 있으면 네이버 메일로 표시
-            isNaver: m.from ? m.from.toLowerCase().includes('naver.com') : false
-          }));
-        } catch (e) {
-          console.error("Single mail fetch failed:", e);
-          throw e;
-        }
+        const res = await fetch(url);
+        const data = await res.json();
+        return (data || []).map((m: any, idx: number) => ({
+          id: `mail-${idx}-${Date.now()}`,
+          from: m.from ? m.from.split('<')[0].replace(/"/g, '').trim() : "Unknown Sender",
+          subject: m.subject || "(No Subject)",
+          link: m.link || "#",
+          isNaver: m.from ? m.from.toLowerCase().includes('naver.com') : false
+        }));
       };
-      const [pMails, cMails] = await Promise.all([
-        fetchSet(MAIL_CONFIG.personal),
-        fetchSet(MAIL_CONFIG.company)
-      ]);
+      const [pMails, cMails] = await Promise.all([fetchSet(MAIL_CONFIG.personal), fetchSet(MAIL_CONFIG.company)]);
       setPersonalMails(pMails);
       setCompanyMails(cMails);
     } catch (error) {
-      console.error("Mail fetching error:", error);
-      setMailError("최근 메일을 가져오는 중에 오류가 발생했습니다. 구글 앱스 스크립트 할당량을 확인해주세요.");
+      setMailError("Mail sync issues detected.");
     } finally {
       setIsLoadingMails(false);
     }
@@ -329,17 +289,12 @@ const App: React.FC = () => {
     try {
       const allNews: NewsItem[] = [];
       for (const source of NEWS_SOURCES) {
-        const url = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(
-          `https://news.google.com/rss/search?q=${source.query}&hl=ko&gl=KR&ceid=KR:ko`
-        )}`;
+        const url = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(`https://news.google.com/rss/search?q=${source.query}&hl=ko&gl=KR&ceid=KR:ko`)}`;
         const res = await fetch(url);
         const data = await res.json();
         if (data.items) {
           allNews.push(...data.items.slice(0, 3).map((item: any) => ({
-            title: item.title,
-            link: item.link,
-            pubDate: item.pubDate.split(' ')[0],
-            source: source.name
+            title: item.title, link: item.link, pubDate: item.pubDate.split(' ')[0], source: source.name
           })));
         }
       }
@@ -358,33 +313,16 @@ const App: React.FC = () => {
     if (accessToken) fetchGoogleCalendarEvents(accessToken);
   }, [fetchMails, fetchNews, fetchFromCloud, fetchGoogleCalendarEvents, storageUrl, accessToken]);
 
-  useEffect(() => {
-    if (unlocked) {
-      refreshAll();
-    }
-  }, [unlocked, refreshAll]);
+  useEffect(() => { if (unlocked) refreshAll(); }, [unlocked, refreshAll]);
 
-  const onDragStart = (id: string, section: 'top' | 'left' | 'right') => {
-    setDraggedId({ id, section });
-  };
-
-  const onDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-  };
-
+  const onDragStart = (id: string, section: 'top' | 'left' | 'right') => setDraggedId({ id, section });
+  const onDragOver = (e: React.DragEvent) => e.preventDefault();
   const onDrop = (targetId: string, targetSection: 'top' | 'left' | 'right') => {
     if (!draggedId || draggedId.section !== targetSection) return;
-
-    const newLayout = { ...layout };
-    const sectionList = [...newLayout[targetSection]];
-    const draggedIndex = sectionList.indexOf(draggedId.id);
-    const targetIndex = sectionList.indexOf(targetId);
-
-    sectionList.splice(draggedIndex, 1);
-    sectionList.splice(targetIndex, 0, draggedId.id);
-
-    newLayout[targetSection] = sectionList;
-    saveState(tasks, newLayout);
+    const sectionList = [...layout[targetSection]];
+    sectionList.splice(sectionList.indexOf(draggedId.id), 1);
+    sectionList.splice(sectionList.indexOf(targetId), 0, draggedId.id);
+    saveState(tasks, { ...layout, [targetSection]: sectionList });
     setDraggedId(null);
   };
 
@@ -392,60 +330,61 @@ const App: React.FC = () => {
     switch (id) {
       case 'comms':
         return (
-          <section className="mb-12 animate-fade-up">
-            <div className="flex items-center justify-between mb-8">
-              <div className="flex items-center gap-3">
-                <ShieldCheck size={16} className="text-blue-400/60" />
-                <h2 className="text-[11px] font-bold tracking-[0.4em] text-white/40 uppercase">Communications</h2>
-                {mailError && (
-                  <div className="flex items-center gap-1.5 text-red-400/80 text-[10px] bg-red-400/5 px-3 py-1 rounded-full border border-red-400/10">
-                    <AlertCircle size={10} /> Sync Error
-                  </div>
-                )}
+          <section className="mb-20 animate-fade-up">
+            <div className="flex items-center justify-between mb-10">
+              <div className="flex items-center gap-4">
+                <div className="p-3 rounded-2xl bg-blue-600/10 border border-blue-600/20">
+                  <ShieldCheck size={20} className="text-blue-600 dark:text-blue-400" />
+                </div>
+                <div>
+                  <h2 className="text-[13px] font-black tracking-[0.6em] text-gray-900/40 dark:text-white/30 uppercase">Intelligence Network</h2>
+                  <p className="text-[10px] text-gray-400 dark:text-white/10 uppercase tracking-widest font-bold">Consolidated comms monitoring</p>
+                </div>
               </div>
-              <button onClick={refreshAll} className="text-white/20 hover:text-white transition-colors">
-                <RefreshCw size={14} className={isLoadingMails ? 'animate-spin' : ''} />
+              <button onClick={refreshAll} className="p-2.5 hover:bg-gray-100 dark:hover:bg-white/5 rounded-2xl transition-all text-gray-400 dark:text-white/30">
+                <RefreshCw size={18} className={isLoadingMails ? 'animate-spin' : ''} />
               </button>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              <MailCard title="Work Gmail" mails={companyMails.filter(m => !m.isNaver)} isLoading={isLoadingMails} error={mailError} />
-              <MailCard title="Personal Gmail" mails={personalMails.filter(m => !m.isNaver)} isLoading={isLoadingMails} error={mailError} />
-              <MailCard title="Work Naver" mails={companyMails.filter(m => m.isNaver)} isLoading={isLoadingMails} error={mailError} isNaverAuto />
-              <MailCard title="Personal Naver" mails={personalMails.filter(m => m.isNaver)} isLoading={isLoadingMails} error={mailError} isNaverAuto />
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+              <MailCard title="GLOBAL CORPORATE" mails={companyMails.filter(m => !m.isNaver)} isLoading={isLoadingMails} error={mailError} />
+              <MailCard title="PRIVATE INTEL" mails={personalMails.filter(m => !m.isNaver)} isLoading={isLoadingMails} error={mailError} />
+              <MailCard title="NAVER WORK" mails={companyMails.filter(m => m.isNaver)} isLoading={isLoadingMails} error={mailError} isNaverAuto />
+              <MailCard title="NAVER PERSONAL" mails={personalMails.filter(m => m.isNaver)} isLoading={isLoadingMails} error={mailError} isNaverAuto />
             </div>
           </section>
         );
       case 'tasks':
         return (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
-            <TaskCard title="Today's Priorities" type={TaskType.TODAY} tasks={tasks.filter(t => t.type === TaskType.TODAY)} onAddTask={addTask} onToggleTask={toggleTask} onDeleteTask={deleteTask} className="h-[450px]" />
-            <TaskCard title="Executive Checklist" type={TaskType.CHECKLIST} tasks={tasks.filter(t => t.type === TaskType.CHECKLIST)} onAddTask={addTask} onToggleTask={toggleTask} onDeleteTask={deleteTask} className="h-[450px]" />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-10 mb-10">
+            <TaskCard title="STRATEGIC PRIORITIES" type={TaskType.TODAY} tasks={tasks.filter(t => t.type === TaskType.TODAY)} onAddTask={addTask} onToggleTask={toggleTask} onDeleteTask={deleteTask} className="h-[520px]" />
+            <TaskCard title="EXECUTIVE CHECKLIST" type={TaskType.CHECKLIST} tasks={tasks.filter(t => t.type === TaskType.CHECKLIST)} onAddTask={addTask} onToggleTask={toggleTask} onDeleteTask={deleteTask} className="h-[520px]" />
           </div>
         );
       case 'news':
         return (
-          <div className="glass-panel p-10 min-h-[500px]">
-            <div className="flex items-center justify-between mb-10">
-              <div className="flex items-center gap-3">
-                <TrendingUp size={18} className="text-orange-400/60" />
-                <h3 className="text-[11px] font-bold tracking-[0.4em] text-white/40 uppercase">Strategic Intelligence</h3>
+          <div className="glass-panel p-12 min-h-[600px]">
+            <div className="flex items-center justify-between mb-12">
+              <div className="flex items-center gap-4">
+                <div className="p-3 rounded-2xl bg-orange-600/10 border border-orange-600/20">
+                  <TrendingUp size={22} className="text-orange-600 dark:text-orange-400" />
+                </div>
+                <h3 className="text-[13px] font-black tracking-[0.6em] text-gray-900/40 dark:text-white/30 uppercase">Global Strategic Intel</h3>
               </div>
-              <button onClick={fetchNews} className="text-white/20 hover:text-white transition-colors">
-                <RefreshCw size={16} className={isLoadingNews ? 'animate-spin' : ''} />
+              <button onClick={fetchNews} className="text-gray-400 dark:text-white/30 hover:text-gray-900 dark:hover:text-white transition-colors">
+                <RefreshCw size={20} className={isLoadingNews ? 'animate-spin' : ''} />
               </button>
             </div>
-
-            <div className="grid gap-10">
+            <div className="grid gap-14">
               {news.map((item, idx) => (
-                <div key={idx} className="group flex flex-col gap-2">
-                  <div className="flex items-center gap-3">
-                    <span className="text-[10px] font-bold text-white/20 uppercase tracking-widest">{item.source}</span>
-                    <div className="h-[1px] flex-1 bg-white/5"></div>
-                    <span className="text-[10px] text-white/20">{item.pubDate}</span>
+                <div key={idx} className="group flex flex-col gap-4">
+                  <div className="flex items-center gap-4">
+                    <span className="text-[11px] font-black text-blue-600 dark:text-blue-500 uppercase tracking-[0.4em]">{item.source}</span>
+                    <div className="h-[1px] flex-1 bg-gray-200 dark:bg-white/5"></div>
+                    <span className="text-[11px] text-gray-400 dark:text-white/20 font-mono font-bold">{item.pubDate}</span>
                   </div>
-                  <a href={item.link} target="_blank" rel="noopener noreferrer" className="text-lg font-normal text-white/70 group-hover:text-white transition-all flex items-center justify-between leading-snug tracking-tight">
+                  <a href={item.link} target="_blank" rel="noopener noreferrer" className="text-2xl font-bold text-gray-900 dark:text-white/90 group-hover:text-blue-600 dark:group-hover:text-white transition-all flex items-center justify-between leading-tight tracking-tight">
                     {item.title}
-                    <ArrowUpRight size={18} className="opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-all duration-300 shrink-0 ml-4" />
+                    <ArrowUpRight size={24} className="opacity-0 group-hover:opacity-100 translate-y-4 group-hover:translate-y-0 transition-all duration-500 shrink-0 ml-8 text-orange-500" />
                   </a>
                 </div>
               ))}
@@ -453,24 +392,16 @@ const App: React.FC = () => {
           </div>
         );
       case 'yesterday':
-        return <TaskCard title="Yesterday Review" type={TaskType.YESTERDAY} tasks={tasks.filter(t => t.type === TaskType.YESTERDAY)} onAddTask={addTask} onToggleTask={toggleTask} onDeleteTask={deleteTask} className="h-[320px] mb-8" />;
+        return <TaskCard title="OPERATIONAL AUDIT" type={TaskType.YESTERDAY} tasks={tasks.filter(t => t.type === TaskType.YESTERDAY)} onAddTask={addTask} onToggleTask={toggleTask} onDeleteTask={deleteTask} className="h-[360px] mb-10" />;
       case 'agenda':
-        return (
-          <CalendarCard 
-            events={calendarEvents} 
-            isLoading={isLoadingCalendar} 
-            className="h-[520px] mb-8"
-            embedUrl={googleCalendarUrl}
-          />
-        );
+        return <CalendarCard events={calendarEvents} isLoading={isLoadingCalendar} className="h-[600px] mb-10" embedUrl={googleCalendarUrl} />;
       case 'logout':
         return (
-          <button onClick={handleLogout} className="w-full glass-panel p-6 flex items-center justify-center gap-4 text-red-400/40 hover:text-red-400 hover:bg-red-400/5 transition-all text-[11px] font-bold uppercase tracking-[0.3em]">
-            <LogOut size={16} strokeWidth={1.5} /> Terminate Session
+          <button onClick={handleLogout} className="w-full glass-panel p-8 flex items-center justify-center gap-5 text-red-500/50 hover:text-red-500 hover:bg-red-500/5 transition-all text-[13px] font-black uppercase tracking-[0.5em]">
+            <LogOut size={20} strokeWidth={2} /> SECURE LOGOUT
           </button>
         );
-      default:
-        return null;
+      default: return null;
     }
   };
 
@@ -478,32 +409,17 @@ const App: React.FC = () => {
     return (
       <div className="min-h-screen flex items-center justify-center p-6 bg-black relative">
         <UnicornBackground />
-        <div className="glass-panel max-w-sm w-full p-12 text-center relative z-10 animate-fade-up">
-          <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mx-auto mb-8 border border-white/10">
-            <Lock className="text-white/40" size={24} strokeWidth={1.2} />
+        <div className="glass-panel max-w-sm w-full p-20 text-center relative z-10 animate-fade-up">
+          <div className="w-24 h-24 bg-white/5 rounded-[2rem] flex items-center justify-center mx-auto mb-12 border border-white/10 shadow-2xl">
+            <Lock className="text-white/20" size={32} strokeWidth={1} />
           </div>
-          <div className="mb-10">
-            <h1 className="text-xl font-bold tracking-[-0.04em] text-white uppercase leading-none mb-2">fupglobalpartners</h1>
-            <p className="text-[10px] text-white/30 tracking-[0.5em] uppercase font-light">CEO DASHBOARD</p>
+          <div className="mb-14">
+            <h1 className="text-3xl font-black tracking-[-0.04em] text-white uppercase mb-4">FUP GLOBAL</h1>
+            <p className="text-[11px] text-white/20 tracking-[0.8em] uppercase font-bold">ENCRYPTED PORTAL</p>
           </div>
-          <form onSubmit={handleUnlock} className="space-y-6">
-            <div className="relative">
-              <input 
-                type="password"
-                maxLength={4}
-                value={pin}
-                autoFocus
-                onChange={(e) => setPin(e.target.value)}
-                placeholder="••••"
-                className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-4 text-center text-2xl tracking-[0.6em] focus:outline-none focus:border-white/20 transition-all font-light placeholder:text-white/10"
-              />
-            </div>
-            <button 
-              type="submit"
-              className="w-full bg-white/10 hover:bg-white/15 text-white/90 font-medium py-4 rounded-2xl border border-white/10 transition-all flex items-center justify-center gap-2 group backdrop-blur-md"
-            >
-              Verify <ChevronRight size={16} className="group-hover:translate-x-1 transition-transform opacity-40" />
-            </button>
+          <form onSubmit={handleUnlock} className="space-y-10">
+            <input type="password" maxLength={4} value={pin} autoFocus onChange={(e) => setPin(e.target.value)} placeholder="••••" className="w-full bg-white/5 border border-white/10 rounded-3xl px-6 py-6 text-center text-4xl tracking-[0.8em] focus:outline-none focus:border-white/30 transition-all font-light placeholder:text-white/10" />
+            <button type="submit" className="w-full bg-white/10 hover:bg-white/20 text-white font-black py-6 rounded-3xl border border-white/10 transition-all flex items-center justify-center gap-4 uppercase tracking-[0.3em] text-xs">Verify Access <ChevronRight size={20} /></button>
           </form>
         </div>
       </div>
@@ -511,243 +427,94 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="main-content relative">
+    <div className="main-content relative bg-[#f2f4f7] dark:bg-black">
       <UnicornBackground />
-      
       <div className="max-w-[1600px] mx-auto relative z-10">
-        <header className="flex flex-col md:flex-row justify-between items-start md:items-end mb-16 gap-8 pt-4">
+        <header className="flex flex-col md:flex-row justify-between items-start md:items-end mb-24 gap-10 pt-10">
           <div className="animate-fade-up">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="h-1 w-1 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]"></div>
-              <span className="text-[10px] uppercase tracking-[0.4em] text-white/40 font-bold">Strategic Intelligence Unit</span>
-              
-              <div className={`flex items-center gap-2 transition-all duration-500 ml-4 ${storageUrl ? 'text-blue-400' : 'text-white/10'}`}>
-                {isSyncing ? (
-                  <Loader2 size={10} className="animate-spin" />
-                ) : storageUrl ? (
-                  <Cloud size={10} />
-                ) : (
-                  <CloudOff size={10} />
-                )}
-                <span className="text-[8px] uppercase tracking-widest font-bold">
-                  {isSyncing ? 'Syncing' : storageUrl ? 'Cloud Connected' : 'Local Only'}
-                </span>
-                {lastSyncTime && !isSyncing && (
-                  <span className="text-[7px] opacity-40 ml-1">
-                    {new Date(lastSyncTime).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                  </span>
-                )}
-              </div>
+            <div className="flex items-center gap-4 mb-8">
+              <div className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_15px_rgba(16,185,129,1)]"></div>
+              <span className="text-[12px] uppercase tracking-[0.6em] text-gray-500 dark:text-white/40 font-black">Strategic Intelligence Unit</span>
             </div>
-            <h1 className="text-4xl lg:text-6xl font-black tracking-[-0.05em] text-white uppercase leading-none">
-              fupglobalpartners<br/>
-              <span className="text-xl lg:text-2xl font-light tracking-[0.4em] text-white/30">CEO DASHBOARD</span>
+            <h1 className="text-6xl lg:text-8xl font-black tracking-[-0.07em] text-gray-900 dark:text-white uppercase leading-[0.85]">
+              FUP GLOBAL<br/>
+              <span className="text-2xl lg:text-3xl font-bold tracking-[0.4em] text-gray-400 dark:text-white/20 block mt-4 uppercase">Executive Dashboard</span>
             </h1>
           </div>
-          <div className="flex flex-col md:items-end gap-4 animate-fade-up">
-            <div className="flex items-center gap-4">
-               {googleUser && (
-                 <div className="hidden md:flex items-center gap-3 glass-panel px-4 py-2 border-white/5 bg-white/[0.02]">
-                    <img src={googleUser.picture} className="w-6 h-6 rounded-full" alt="profile" />
-                    <div className="text-right">
-                      <p className="text-[9px] font-bold text-white/80 leading-tight uppercase tracking-widest">{googleUser.name}</p>
-                      <p className="text-[8px] text-white/30 leading-tight">{googleUser.email}</p>
-                    </div>
-                 </div>
-               )}
-               <button 
-                onClick={() => setShowSettings(!showSettings)}
-                className={`p-3 rounded-full border transition-all ${showSettings ? 'bg-white/10 border-white/30 shadow-[0_0_15px_rgba(255,255,255,0.05)]' : 'border-white/10 hover:bg-white/5'}`}
-               >
-                 <Settings size={18} className={`${showSettings ? 'text-white' : 'text-white/40'}`} />
-               </button>
-               <div className="text-right">
-                <div className="flex items-center justify-end gap-3 text-white/30 font-light text-sm tracking-wide">
-                  <CalendarIcon size={14} strokeWidth={1.5} />
-                  {currentTime.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' })}
+          <div className="flex flex-col md:items-end gap-8 animate-fade-up">
+            <div className="flex items-center gap-5">
+              {googleUser && (
+                <div className="hidden md:flex items-center gap-5 glass-panel px-6 py-3.5 bg-white/5 dark:bg-white/[0.01] border-white/5">
+                  <img src={googleUser.picture} className="w-10 h-10 rounded-full ring-2 ring-blue-500/20" alt="profile" />
+                  <div className="text-right">
+                    <p className="text-[11px] font-black text-gray-900 dark:text-white leading-tight uppercase tracking-widest">{googleUser.name}</p>
+                    <p className="text-[10px] text-gray-400 dark:text-white/30 leading-tight">{googleUser.email}</p>
+                  </div>
                 </div>
-                <div className="flex items-center justify-end gap-4 text-white text-4xl lg:text-5xl font-bold tracking-tighter">
-                  {currentTime.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })}
-                </div>
+              )}
+              <button onClick={toggleTheme} className="p-4 rounded-[1.5rem] border border-gray-200 dark:border-white/10 bg-white/80 dark:bg-white/5 hover:scale-105 transition-all text-gray-600 dark:text-white/60">
+                {theme === 'dark' ? <Sun size={22} /> : <Moon size={22} />}
+              </button>
+              <button onClick={() => setShowSettings(!showSettings)} className={`p-4 rounded-[1.5rem] border transition-all ${showSettings ? 'bg-blue-600 border-blue-500 shadow-xl text-white' : 'border-gray-200 dark:border-white/10 bg-white/80 dark:bg-white/5 text-gray-600 dark:text-white/60'}`}>
+                <Settings size={22} />
+              </button>
+              <div className="text-right ml-6">
+                <div className="text-gray-400 dark:text-white/30 text-[12px] font-black tracking-[0.3em] uppercase mb-2">{currentTime.toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'short' })}</div>
+                <div className="text-gray-900 dark:text-white text-6xl lg:text-7xl font-black tracking-tighter leading-none">{currentTime.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })}</div>
               </div>
             </div>
           </div>
         </header>
 
         {showSettings && (
-          <div className="glass-panel p-8 mb-12 animate-fade-up border-white/20 bg-white/[0.05]">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
-              <div>
-                <div className="flex items-center gap-4 mb-6">
-                  <div className="p-2 bg-blue-500/10 rounded-lg">
-                    <Cloud size={20} className="text-blue-400" />
-                  </div>
-                  <div>
-                    <h3 className="text-xs font-bold uppercase tracking-[0.3em] text-white/80">Task & Layout Sync</h3>
-                    <p className="text-[10px] text-white/30 tracking-wider">Sync across PC and Mobile</p>
-                  </div>
-                </div>
-                <div className="flex flex-col gap-3">
-                  <input 
-                    type="text"
-                    placeholder="Storage API URL"
-                    value={storageUrl}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setStorageUrl(val);
-                      localStorage.setItem('ceo_storage_url', val);
-                    }}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-[10px] focus:outline-none focus:border-white/30 transition-all font-mono text-white/50"
-                  />
-                  <div className="flex gap-2">
-                    <button onClick={() => { setStorageUrl(DEFAULT_STORAGE_URL); localStorage.setItem('ceo_storage_url', DEFAULT_STORAGE_URL); }} className="bg-white/5 hover:bg-white/10 text-white/40 px-3 py-2 rounded-lg text-[9px] font-bold uppercase tracking-widest border border-white/5 transition-all">Reset</button>
-                    <button onClick={refreshAll} className="bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg text-[9px] font-bold uppercase tracking-widest border border-white/10 transition-all flex items-center gap-2"><RefreshCw size={10} /> Sync Now</button>
-                  </div>
+          <div className="glass-panel p-12 mb-20 animate-fade-up border-blue-500/20">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-20">
+              <div className="space-y-8">
+                <h3 className="text-sm font-black uppercase tracking-[0.5em] text-blue-600 dark:text-blue-500 mb-8">Cloud Connectivity</h3>
+                <input type="text" placeholder="Storage Endpoint URL" value={storageUrl} onChange={(e) => { setStorageUrl(e.target.value); localStorage.setItem('ceo_storage_url', e.target.value); }} className="w-full bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-2xl px-6 py-5 text-xs font-mono font-bold text-gray-600 dark:text-white/40 focus:outline-none focus:ring-2 ring-blue-500/30" />
+                <div className="flex gap-4">
+                  <button onClick={() => setStorageUrl(DEFAULT_STORAGE_URL)} className="px-8 py-4 rounded-2xl bg-gray-200 dark:bg-white/5 text-[11px] font-black uppercase tracking-widest text-gray-600 dark:text-white/40 transition-all">Reset</button>
+                  <button onClick={refreshAll} className="px-8 py-4 rounded-2xl bg-blue-600 text-white text-[11px] font-black uppercase tracking-widest flex items-center gap-3 transition-all"><RefreshCw size={16} /> Global Sync</button>
                 </div>
               </div>
-
-              <div>
-                <div className="flex items-center gap-4 mb-6">
-                  <div className="p-2 bg-purple-500/10 rounded-lg">
-                    <CalendarIcon size={20} className="text-purple-400" />
+              <div className="space-y-8">
+                <h3 className="text-sm font-black uppercase tracking-[0.5em] text-purple-600 dark:text-purple-500 mb-8">Encryption & Security</h3>
+                <input type="text" placeholder="OAuth Client ID" value={googleClientId} onChange={(e) => { setGoogleClientId(e.target.value); localStorage.setItem('ceo_google_client_id', e.target.value); }} className="w-full bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-2xl px-6 py-5 text-xs font-mono font-bold text-gray-600 dark:text-white/40" />
+                {!googleUser ? (
+                  <button onClick={handleGoogleLogin} disabled={!isValidClientId(googleClientId)} className="w-full py-5 rounded-2xl bg-black dark:bg-white text-white dark:text-black font-black uppercase tracking-[0.3em] text-[11px] flex items-center justify-center gap-4 hover:opacity-90 disabled:opacity-20 transition-all">
+                    <Key size={18} /> Authorize Access
+                  </button>
+                ) : (
+                  <div className="p-6 rounded-2xl bg-emerald-500/5 border border-emerald-500/20 flex items-center justify-between">
+                    <span className="text-[11px] font-black text-emerald-600 dark:text-emerald-500 uppercase tracking-widest flex items-center gap-3"><CheckCircle2 size={20} /> Secure Connection Active</span>
+                    <button onClick={handleGoogleLogout} className="text-red-500 hover:text-red-600 transition-colors p-2"><LogOut size={22} /></button>
                   </div>
-                  <div>
-                    <h3 className="text-xs font-bold uppercase tracking-[0.3em] text-white/80">Google Calendar Connect</h3>
-                    <p className="text-[10px] text-white/30 tracking-wider">Direct integration via URL or API</p>
-                  </div>
-                </div>
-                
-                <div className="flex flex-col gap-4">
-                  <div className="flex flex-col gap-2">
-                    <div className="flex items-center justify-between">
-                       <div className="flex items-center gap-2 text-[10px] font-bold text-white/40 uppercase">
-                        <Link size={10} /> 1. Live Feed URL (공개 URL)
-                      </div>
-                      {googleCalendarUrl && (
-                        <div className="flex items-center gap-1 text-[8px] text-emerald-400 font-bold">
-                          <CheckCircle2 size={8} /> CONNECTED
-                        </div>
-                      )}
-                    </div>
-                    <input 
-                      type="text"
-                      placeholder="https://calendar.google.com/calendar/embed?src=..."
-                      value={googleCalendarUrl}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setGoogleCalendarUrl(val);
-                        localStorage.setItem('ceo_google_calendar_url', val);
-                      }}
-                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-[10px] focus:outline-none focus:border-white/30 transition-all font-mono text-white/50"
-                    />
-                  </div>
-
-                  <div className="h-[1px] bg-white/5 my-2"></div>
-
-                  <div className="flex flex-col gap-2">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2 text-[10px] font-bold text-white/40 uppercase">
-                        <Key size={10} /> 2. API Sync (OAuth ID)
-                      </div>
-                    </div>
-                    <div className="relative">
-                      <input 
-                        type="text"
-                        placeholder="12345-abcde.apps.googleusercontent.com"
-                        value={googleClientId}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setGoogleClientId(val);
-                          localStorage.setItem('ceo_google_client_id', val);
-                        }}
-                        className={`w-full bg-white/5 border rounded-xl px-4 py-3 text-[10px] focus:outline-none transition-all font-mono text-white/50 ${googleClientId && !isValidClientId(googleClientId) ? 'border-red-500/50' : 'border-white/10 focus:border-white/30'}`}
-                      />
-                    </div>
-                  </div>
-                  
-                  {!googleUser ? (
-                    <button 
-                      onClick={handleGoogleLogin}
-                      disabled={!isValidClientId(googleClientId)}
-                      className={`google-btn w-full flex items-center justify-center gap-3 py-3 rounded-xl text-xs font-bold uppercase tracking-widest shadow-xl transition-all ${!isValidClientId(googleClientId) ? 'opacity-30 grayscale cursor-not-allowed' : 'opacity-100 hover:scale-[1.02]'}`}
-                    >
-                      <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.63-.06-1.25-.16-1.84H9v3.49h4.84c-.21 1.12-.84 2.07-1.79 2.7l2.85 2.21c1.67-1.53 2.64-3.79 2.64-6.56z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.85-2.21c-.8.53-1.81.85-3.11.85-2.39 0-4.41-1.61-5.14-3.77L1.04 13.5C2.53 16.46 5.53 18 9 18z"/><path fill="#FBBC05" d="M3.86 10.74c-.19-.56-.3-1.15-.3-1.74s.11-1.18.3-1.74l-2.82-2.19C.39 6.22 0 7.57 0 9s.39 2.78 1.04 3.93l2.82-2.19z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.47.89 11.43 0 9 0 5.53 0 2.53 1.54 1.04 4.5L3.86 6.69c.73-2.16 2.75-3.77 5.14-3.77z"/></svg>
-                      Authorize API Sync
-                    </button>
-                  ) : (
-                    <div className="flex flex-col gap-3">
-                      <div className="flex items-center gap-4 p-4 rounded-xl bg-white/[0.03] border border-white/5">
-                        <img src={googleUser.picture} className="w-10 h-10 rounded-full" alt="profile" />
-                        <div className="flex-1">
-                           <p className="text-[11px] font-bold text-white uppercase">{googleUser.name}</p>
-                           <p className="text-[10px] text-white/30">{googleUser.email}</p>
-                        </div>
-                        <button onClick={handleGoogleLogout} className="p-2 text-white/20 hover:text-red-400"><LogOut size={16} /></button>
-                      </div>
-                    </div>
-                  )}
-                  <div className="bg-emerald-400/5 p-4 rounded-xl border border-emerald-400/10 space-y-2">
-                    <p className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest flex items-center gap-2">
-                      <MailIcon size={12} /> Naver Mail Intelligence
-                    </p>
-                    <p className="text-[9px] text-white/30 leading-relaxed">
-                      네이버 메일을 지메일의 <strong>'외부 메일 가져오기'</strong> 기능을 통해 연동해 두시면, 대시보드가 발신 도메인을 분석하여 자동으로 네이버 칸에 분류합니다. 가장 빠르고 효율적인 통합 방법입니다.
-                    </p>
-                  </div>
-                </div>
+                )}
               </div>
             </div>
           </div>
         )}
 
-        {layout.top.map((id) => (
-          <div 
-            key={id} 
-            draggable 
-            onDragStart={() => onDragStart(id, 'top')}
-            onDragOver={onDragOver}
-            onDrop={() => onDrop(id, 'top')}
-            className="relative group mb-4"
-          >
-            <div className="absolute -left-6 top-0 bottom-0 flex items-center opacity-0 group-hover:opacity-40 transition-opacity cursor-grab active:cursor-grabbing">
-              <GripVertical size={20} />
-            </div>
+        {layout.top.map(id => (
+          <div key={id} draggable onDragStart={() => onDragStart(id, 'top')} onDragOver={onDragOver} onDrop={() => onDrop(id, 'top')} className="relative group mb-10">
+            <div className="absolute -left-12 top-0 bottom-0 flex items-center opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing"><GripVertical size={28} className="text-gray-300 dark:text-white/10" /></div>
             {renderSection(id)}
           </div>
         ))}
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start pb-20">
-          <div className="lg:col-span-8 space-y-4">
-            {layout.left.map((id) => (
-              <div 
-                key={id} 
-                draggable 
-                onDragStart={() => onDragStart(id, 'left')}
-                onDragOver={onDragOver}
-                onDrop={() => onDrop(id, 'left')}
-                className="relative group"
-              >
-                <div className="absolute -left-6 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-40 transition-opacity cursor-grab active:cursor-grabbing">
-                  <GripVertical size={20} />
-                </div>
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-16 items-start pb-40">
+          <div className="lg:col-span-8 space-y-12">
+            {layout.left.map(id => (
+              <div key={id} draggable onDragStart={() => onDragStart(id, 'left')} onDragOver={onDragOver} onDrop={() => onDrop(id, 'left')} className="relative group">
+                <div className="absolute -left-12 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing"><GripVertical size={28} className="text-gray-300 dark:text-white/10" /></div>
                 {renderSection(id)}
               </div>
             ))}
           </div>
-
-          <div className="lg:col-span-4 space-y-4">
-            {layout.right.map((id) => (
-              <div 
-                key={id} 
-                draggable 
-                onDragStart={() => onDragStart(id, 'right')}
-                onDragOver={onDragOver}
-                onDrop={() => onDrop(id, 'right')}
-                className="relative group"
-              >
-                <div className="absolute -left-6 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-40 transition-opacity cursor-grab active:cursor-grabbing">
-                  <GripVertical size={20} />
-                </div>
+          <div className="lg:col-span-4 space-y-12">
+            {layout.right.map(id => (
+              <div key={id} draggable onDragStart={() => onDragStart(id, 'right')} onDragOver={onDragOver} onDrop={() => onDrop(id, 'right')} className="relative group">
+                <div className="absolute -left-12 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing"><GripVertical size={28} className="text-gray-300 dark:text-white/10" /></div>
                 {renderSection(id)}
               </div>
             ))}

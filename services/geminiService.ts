@@ -1,14 +1,11 @@
-
 import {GoogleGenAI} from "@google/genai";
 import { NewsItem } from "../types";
 
-// Vite define 설정에 의해 빌드 타임에 문자열로 치환됩니다.
-const apiKey = process.env.API_KEY;
-const ai = new GoogleGenAI({ apiKey });
+// Always use the named parameter and process.env.API_KEY directly as per guidelines.
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export async function summarizeExecutiveNews(news: NewsItem[]): Promise<string> {
   if (!news || news.length === 0) return "No significant updates found for your companies this morning.";
-  if (!apiKey) return "AI Summary unavailable: API Key not configured.";
 
   const newsContext = news.map(n => `[${n.source}] ${n.title}`).join('\n');
 
@@ -25,6 +22,7 @@ export async function summarizeExecutiveNews(news: NewsItem[]): Promise<string> 
       },
     });
 
+    // Access the .text property directly instead of calling a method as per latest guidelines.
     return response.text || "Summary unavailable.";
   } catch (error) {
     console.error("Gemini summary error:", error);
