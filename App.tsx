@@ -10,14 +10,12 @@ import {
   RefreshCw, TrendingUp, ShieldCheck,
   ChevronRight, LogOut, ArrowUpRight, GripVertical,
   Settings, Cloud, CloudOff, Loader2, CheckCircle2,
-  User, Mail as MailIcon
+  User, Mail as MailIcon, Key, AlertCircle, Info, Link, HelpCircle
 } from 'lucide-react';
 
 const PIN_CODE = '0925';
 
-// 기본 저장소 및 캘린더 설정
 const DEFAULT_STORAGE_URL = 'https://script.google.com/macros/s/AKfycbzHsj5xZgL0js_7t8XXW8ksG634xp4mBGwkLJIIUbedZkYiDJEzJkaDq8m8iLUNLMVK7g/exec';
-const DEFAULT_CALENDAR_URL = 'https://script.google.com/macros/s/AKfycbzHsj5xZgL0js_7t8XXW8ksG634xp4mBGwkLJIIUbedZkYiDJEzJkaDq8m8iLUNLMVK7g/exec?type=calendar';
 
 const MAIL_CONFIG = {
   personal: 'https://script.google.com/macros/s/AKfycbPt7-RQromTNCVGjk1KW9UIf9hj6voRQEjJrlmZNy_oA3CHI03apedJWrDCbvpUU9njg/exec',
@@ -45,9 +43,11 @@ const App: React.FC = () => {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [showSettings, setShowSettings] = useState(false);
   const [storageUrl, setStorageUrl] = useState(DEFAULT_STORAGE_URL);
-  const [calendarUrl, setCalendarUrl] = useState(DEFAULT_CALENDAR_URL);
   
-  // 구글 사용자 상태
+  // 구글 연동 상태
+  const [googleClientId, setGoogleClientId] = useState('');
+  const [googleCalendarUrl, setGoogleCalendarUrl] = useState('');
+  const [accessToken, setAccessToken] = useState<string | null>(null);
   const [googleUser, setGoogleUser] = useState<{name: string, email: string, picture: string} | null>(null);
 
   const [layout, setLayout] = useState({
@@ -57,6 +57,104 @@ const App: React.FC = () => {
   });
 
   const [draggedId, setDraggedId] = useState<{ id: string, section: 'top' | 'left' | 'right' } | null>(null);
+
+  const isValidClientId = (id: string) => {
+    return id.trim().endsWith('.apps.googleusercontent.com');
+  };
+
+  const extractCalendarIdFromUrl = (url: string) => {
+    try {
+      const u = new URL(url);
+      const src = u.searchParams.get('src');
+      return src || "";
+    } catch (e) {
+      return "";
+    }
+  };
+
+  const fetchGoogleCalendarEvents = useCallback(async (token: string) => {
+    setIsLoadingCalendar(true);
+    try {
+      const calId = extractCalendarIdFromUrl(googleCalendarUrl) || 'primary';
+      const now = new Date().toISOString();
+      const res = await fetch(
+        `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calId)}/events?timeMin=${now}&maxResults=20&orderBy=startTime&singleEvents=true`,
+        {
+          headers: { Authorization: `Bearer ${token}` }
+        }
+      );
+      const data = await res.json();
+      
+      if (data.items) {
+        const formattedEvents: CalendarEvent[] = data.items.map((item: any) => ({
+          id: item.id,
+          title: item.summary,
+          start: item.start.dateTime || item.start.date,
+          end: item.end.dateTime || item.end.date,
+          location: item.location,
+          description: item.description,
+          color: item.colorId ? '#60a5fa' : '#3b82f6'
+        }));
+        setCalendarEvents(formattedEvents);
+      }
+    } catch (error) {
+      console.error("Google Calendar API Error:", error);
+    } finally {
+      setIsLoadingCalendar(false);
+    }
+  }, [googleCalendarUrl]);
+
+  const fetchGoogleUserInfo = useCallback(async (token: string) => {
+    try {
+      const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      const user = {
+        name: data.name,
+        email: data.email,
+        picture: data.picture
+      };
+      setGoogleUser(user);
+      localStorage.setItem('ceo_google_user', JSON.stringify(user));
+    } catch (error) {
+      console.error("User Info Error:", error);
+    }
+  }, []);
+
+  const handleGoogleLogin = () => {
+    const trimmedId = googleClientId.trim();
+    if (!isValidClientId(trimmedId)) {
+      alert("⚠️ 잘못된 클라이언트 ID입니다.\n\n입력하신 'whynot'은 ID가 아닙니다. 구글 클라우드 콘솔에서 발급받은 '12345-abcde.apps.googleusercontent.com' 형식의 전체 문자열을 입력해주세요.");
+      return;
+    }
+
+    try {
+      const client = (window as any).google.accounts.oauth2.initTokenClient({
+        client_id: trimmedId,
+        scope: 'https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
+        callback: (response: any) => {
+          if (response.access_token) {
+            setAccessToken(response.access_token);
+            localStorage.setItem('ceo_google_token', response.access_token);
+            fetchGoogleUserInfo(response.access_token);
+            fetchGoogleCalendarEvents(response.access_token);
+          }
+        },
+      });
+      client.requestAccessToken();
+    } catch (e) {
+      alert("인증 시스템 초기화 실패. Client ID를 확인해주세요.");
+    }
+  };
+
+  const handleGoogleLogout = () => {
+    setAccessToken(null);
+    setGoogleUser(null);
+    setCalendarEvents([]);
+    localStorage.removeItem('ceo_google_token');
+    localStorage.removeItem('ceo_google_user');
+  };
 
   const syncToCloud = useCallback(async (updatedTasks: Task[], updatedLayout: any) => {
     if (!storageUrl) return;
@@ -102,24 +200,6 @@ const App: React.FC = () => {
     }
   }, [storageUrl]);
 
-  const fetchCalendar = useCallback(async () => {
-    if (!calendarUrl) return;
-    setIsLoadingCalendar(true);
-    try {
-      const res = await fetch(calendarUrl);
-      const data = await res.json();
-      if (data && data.events) {
-        setCalendarEvents(data.events);
-      } else if (Array.isArray(data)) {
-        setCalendarEvents(data);
-      }
-    } catch (error) {
-      console.error("Calendar fetch failed:", error);
-    } finally {
-      setIsLoadingCalendar(false);
-    }
-  }, [calendarUrl]);
-
   useEffect(() => {
     const isUnlocked = localStorage.getItem('ceo_unlocked') === 'true';
     if (isUnlocked) setUnlocked(true);
@@ -132,40 +212,25 @@ const App: React.FC = () => {
 
     const savedUrl = localStorage.getItem('ceo_storage_url');
     if (savedUrl) setStorageUrl(savedUrl);
-    else setStorageUrl(DEFAULT_STORAGE_URL);
 
-    const savedCalUrl = localStorage.getItem('ceo_calendar_url');
-    if (savedCalUrl) setCalendarUrl(savedCalUrl);
-    else setCalendarUrl(DEFAULT_CALENDAR_URL);
+    const savedClientId = localStorage.getItem('ceo_google_client_id');
+    if (savedClientId) setGoogleClientId(savedClientId);
 
+    const savedCalendarUrl = localStorage.getItem('ceo_google_calendar_url');
+    if (savedCalendarUrl) setGoogleCalendarUrl(savedCalendarUrl);
+
+    const savedToken = localStorage.getItem('ceo_google_token');
     const savedUser = localStorage.getItem('ceo_google_user');
+    
+    if (savedToken) {
+      setAccessToken(savedToken);
+      fetchGoogleCalendarEvents(savedToken);
+    }
     if (savedUser) setGoogleUser(JSON.parse(savedUser));
 
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
-  }, []);
-
-  // Google Login Handler
-  const handleGoogleLogin = () => {
-    // 실제 환경에서는 Google Client ID와 GIS SDK가 필요합니다.
-    // 여기서는 연동을 시뮬레이션하고 저장소 URL에 사용자 컨텍스트를 추가하는 방식을 제안합니다.
-    const mockUser = {
-      name: "Executive User",
-      email: "ceo@fupglobal.com",
-      picture: "https://ui-avatars.com/api/?name=CEO&background=3b82f6&color=fff"
-    };
-    setGoogleUser(mockUser);
-    localStorage.setItem('ceo_google_user', JSON.stringify(mockUser));
-    
-    // 앱 스크립트에 접근 권한을 확인하기 위해 새 창을 열어 인증 과정을 유도합니다.
-    window.open(calendarUrl, '_blank');
-    refreshAll();
-  };
-
-  const handleGoogleLogout = () => {
-    setGoogleUser(null);
-    localStorage.removeItem('ceo_google_user');
-  };
+  }, [fetchGoogleCalendarEvents]);
 
   useEffect(() => {
     if (unlocked && storageUrl) {
@@ -174,12 +239,6 @@ const App: React.FC = () => {
       return () => clearInterval(pollInterval);
     }
   }, [unlocked, storageUrl, fetchFromCloud]);
-
-  useEffect(() => {
-    if (unlocked && calendarUrl) {
-      fetchCalendar();
-    }
-  }, [unlocked, calendarUrl, fetchCalendar]);
 
   const handleUnlock = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -285,8 +344,8 @@ const App: React.FC = () => {
     fetchMails();
     fetchNews();
     if (storageUrl) fetchFromCloud();
-    if (calendarUrl) fetchCalendar();
-  }, [fetchMails, fetchNews, fetchFromCloud, fetchCalendar, storageUrl, calendarUrl]);
+    if (accessToken) fetchGoogleCalendarEvents(accessToken);
+  }, [fetchMails, fetchNews, fetchFromCloud, fetchGoogleCalendarEvents, storageUrl, accessToken]);
 
   useEffect(() => {
     if (unlocked) {
@@ -385,6 +444,7 @@ const App: React.FC = () => {
             events={calendarEvents} 
             isLoading={isLoadingCalendar} 
             className="h-[520px] mb-8"
+            embedUrl={googleCalendarUrl}
           />
         );
       case 'logout':
@@ -536,54 +596,94 @@ const App: React.FC = () => {
                     <CalendarIcon size={20} className="text-purple-400" />
                   </div>
                   <div>
-                    <h3 className="text-xs font-bold uppercase tracking-[0.3em] text-white/80">Google Calendar Integration</h3>
-                    <p className="text-[10px] text-white/30 tracking-wider">Fetch events in real-time</p>
+                    <h3 className="text-xs font-bold uppercase tracking-[0.3em] text-white/80">Google Calendar Connect</h3>
+                    <p className="text-[10px] text-white/30 tracking-wider">Direct integration via URL or API</p>
                   </div>
                 </div>
+                
                 <div className="flex flex-col gap-4">
+                  {/* Step 1: Embed URL - Easiest way */}
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center justify-between">
+                       <div className="flex items-center gap-2 text-[10px] font-bold text-white/40 uppercase">
+                        <Link size={10} /> 1. Live Feed URL (가장 빠른 방법)
+                      </div>
+                      {googleCalendarUrl && (
+                        <div className="flex items-center gap-1 text-[8px] text-emerald-400 font-bold">
+                          <CheckCircle2 size={8} /> CONNECTED
+                        </div>
+                      )}
+                    </div>
+                    <input 
+                      type="text"
+                      placeholder="https://calendar.google.com/calendar/embed?src=..."
+                      value={googleCalendarUrl}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setGoogleCalendarUrl(val);
+                        localStorage.setItem('ceo_google_calendar_url', val);
+                      }}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-[10px] focus:outline-none focus:border-white/30 transition-all font-mono text-white/50"
+                    />
+                    <p className="text-[8px] text-white/20 px-1 italic">보내주신 공개 URL을 여기에 넣으시면 대시보드에서 즉시 보입니다.</p>
+                  </div>
+
+                  <div className="h-[1px] bg-white/5 my-2"></div>
+
+                  {/* Step 2: OAuth API - Complex way */}
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-[10px] font-bold text-white/40 uppercase">
+                        <Key size={10} /> 2. API Sync (Styled View용)
+                      </div>
+                      <a href="https://console.cloud.google.com/apis/credentials" target="_blank" className="flex items-center gap-1 text-[8px] text-blue-400/60 hover:text-blue-400 underline uppercase font-bold">
+                        발급 가이드 <HelpCircle size={8} />
+                      </a>
+                    </div>
+                    <div className="relative">
+                      <input 
+                        type="text"
+                        placeholder="12345-abcde.apps.googleusercontent.com"
+                        value={googleClientId}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setGoogleClientId(val);
+                          localStorage.setItem('ceo_google_client_id', val);
+                        }}
+                        className={`w-full bg-white/5 border rounded-xl px-4 py-3 text-[10px] focus:outline-none transition-all font-mono text-white/50 ${googleClientId && !isValidClientId(googleClientId) ? 'border-red-500/50' : 'border-white/10 focus:border-white/30'}`}
+                      />
+                      {googleClientId && !isValidClientId(googleClientId) && (
+                        <div className="absolute -bottom-5 left-0 flex items-center gap-1 text-red-500 text-[8px] font-bold animate-pulse">
+                          <AlertCircle size={8} /> ⚠️ 'whynot'은 ID가 아닙니다. 전체 문자열을 넣으세요.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  
                   {!googleUser ? (
                     <button 
                       onClick={handleGoogleLogin}
-                      className="google-btn w-full flex items-center justify-center gap-3 py-3 rounded-xl text-xs font-bold uppercase tracking-widest shadow-xl"
+                      disabled={!isValidClientId(googleClientId)}
+                      className={`google-btn w-full flex items-center justify-center gap-3 py-3 rounded-xl text-xs font-bold uppercase tracking-widest shadow-xl transition-all ${!isValidClientId(googleClientId) ? 'opacity-30 grayscale cursor-not-allowed' : 'opacity-100 hover:scale-[1.02]'}`}
                     >
                       <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.63-.06-1.25-.16-1.84H9v3.49h4.84c-.21 1.12-.84 2.07-1.79 2.7l2.85 2.21c1.67-1.53 2.64-3.79 2.64-6.56z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.85-2.21c-.8.53-1.81.85-3.11.85-2.39 0-4.41-1.61-5.14-3.77L1.04 13.5C2.53 16.46 5.53 18 9 18z"/><path fill="#FBBC05" d="M3.86 10.74c-.19-.56-.3-1.15-.3-1.74s.11-1.18.3-1.74l-2.82-2.19C.39 6.22 0 7.57 0 9s.39 2.78 1.04 3.93l2.82-2.19z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.47.89 11.43 0 9 0 5.53 0 2.53 1.54 1.04 4.5L3.86 6.69c.73-2.16 2.75-3.77 5.14-3.77z"/></svg>
-                      Sign in with Google
+                      Authorize API Sync
                     </button>
                   ) : (
                     <div className="flex flex-col gap-3">
                       <div className="flex items-center gap-4 p-4 rounded-xl bg-white/[0.03] border border-white/5">
-                        <img src={googleUser.picture} className="w-10 h-10 rounded-full border border-white/10" alt="profile" />
+                        <img src={googleUser.picture} className="w-10 h-10 rounded-full" alt="profile" />
                         <div className="flex-1">
-                           <p className="text-[11px] font-bold text-white uppercase tracking-wider">{googleUser.name}</p>
+                           <p className="text-[11px] font-bold text-white uppercase">{googleUser.name}</p>
                            <p className="text-[10px] text-white/30">{googleUser.email}</p>
                         </div>
-                        <button 
-                          onClick={handleGoogleLogout}
-                          className="p-2 text-white/20 hover:text-red-400 transition-colors"
-                        >
-                          <LogOut size={16} />
-                        </button>
+                        <button onClick={handleGoogleLogout} className="p-2 text-white/20 hover:text-red-400"><LogOut size={16} /></button>
                       </div>
-                      <div className="flex gap-2">
-                        <input 
-                          type="text"
-                          placeholder="Calendar API URL"
-                          value={calendarUrl}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setCalendarUrl(val);
-                            localStorage.setItem('ceo_calendar_url', val);
-                          }}
-                          className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-[10px] focus:outline-none focus:border-white/30 transition-all font-mono text-white/50"
-                        />
-                        <button onClick={fetchCalendar} className="bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 px-4 py-2 rounded-lg text-[9px] font-bold uppercase tracking-widest border border-purple-500/10 transition-all">Update</button>
-                      </div>
+                      <button onClick={() => accessToken && fetchGoogleCalendarEvents(accessToken)} className="bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 py-2 rounded-lg text-[9px] font-bold uppercase border border-purple-500/10 transition-all flex items-center justify-center gap-2">
+                        <RefreshCw size={10} className={isLoadingCalendar ? 'animate-spin' : ''} /> Refresh API Data
+                      </button>
                     </div>
                   )}
-                  <p className="text-[9px] text-white/20 leading-relaxed px-1">
-                    Connect your Google ID to synchronize appointments and strategic meetings. 
-                    Authorization is required for cross-device visibility.
-                  </p>
                 </div>
               </div>
             </div>
