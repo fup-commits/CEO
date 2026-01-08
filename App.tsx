@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Task, TaskType, Mail, NewsItem, CalendarEvent } from './types';
 import UnicornBackground from './components/UnicornBackground';
 import MailCard from './components/MailCard';
@@ -48,6 +48,7 @@ const App: React.FC = () => {
   const [isLoadingCalendar, setIsLoadingCalendar] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [showSettings, setShowSettings] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [storageUrl, setStorageUrl] = useState(() => localStorage.getItem('ceo_storage_url') || DEFAULT_STORAGE_URL);
   
   const [weather, setWeather] = useState<{ temp: number; humidity: number; icon: string } | null>(null);
@@ -63,7 +64,7 @@ const App: React.FC = () => {
     right: ['yesterday', 'agenda', 'logout']
   });
 
-  // Load Initial Tasks & Theme
+  // Load Initial Cache
   useEffect(() => {
     const savedTasks = localStorage.getItem('ceo_tasks');
     if (savedTasks) {
@@ -72,11 +73,6 @@ const App: React.FC = () => {
     const savedTheme = localStorage.getItem('ceo_theme') as 'dark' | 'light';
     if (savedTheme) setTheme(savedTheme);
   }, []);
-
-  // Sync tasks to LocalStorage whenever they change
-  useEffect(() => {
-    localStorage.setItem('ceo_tasks', JSON.stringify(tasks));
-  }, [tasks]);
 
   useEffect(() => {
     const root = window.document.documentElement;
@@ -91,6 +87,36 @@ const App: React.FC = () => {
   }, [theme]);
 
   const toggleTheme = () => setTheme(prev => prev === 'dark' ? 'light' : 'dark');
+
+  // Cloud Sync Functions
+  const saveTasksToCloud = useCallback(async (currentTasks: Task[]) => {
+    if (!storageUrl || !unlocked) return;
+    try {
+      await fetch(storageUrl, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'saveTasks', tasks: currentTasks })
+      });
+      localStorage.setItem('ceo_tasks', JSON.stringify(currentTasks));
+    } catch (e) {
+      console.error("Cloud save failed", e);
+    }
+  }, [storageUrl, unlocked]);
+
+  const fetchTasksFromCloud = useCallback(async () => {
+    if (!storageUrl) return;
+    try {
+      const res = await fetch(`${storageUrl}?action=getTasks`);
+      const data = await res.json();
+      if (data && Array.isArray(data)) {
+        setTasks(data);
+        localStorage.setItem('ceo_tasks', JSON.stringify(data));
+      }
+    } catch (e) {
+      console.warn("Cloud pull failed, using local cache.");
+    }
+  }, [storageUrl]);
 
   const fetchIntelligence = useCallback(async () => {
     try {
@@ -111,66 +137,12 @@ const App: React.FC = () => {
       const pm10 = aData.current.pm10;
       let status = '좋음';
       let face: 'good' | 'normal' | 'bad' | 'danger' = 'good';
-      
       if (pm10 > 20) { status = '주의'; face = 'normal'; }
       if (pm10 > 50) { status = '위험'; face = 'bad'; }
       if (pm10 > 100) { status = '매우위험'; face = 'danger'; }
-      
       setAirQuality({ value: Math.round(pm10), status, face });
     } catch (e) { console.error("Intel fetch failed", e); }
   }, []);
-
-  const fetchTasksFromCloud = useCallback(async () => {
-    if (!storageUrl) return;
-    try {
-      const res = await fetch(`${storageUrl}?action=getTasks`);
-      const data = await res.json();
-      if (data && Array.isArray(data)) {
-        setTasks(data);
-      }
-    } catch (e) {
-      console.warn("Cloud tasks sync unavailable, using local cache.");
-    }
-  }, [storageUrl]);
-
-  const fetchGoogleCalendarEvents = useCallback(async (token: string) => {
-    setIsLoadingCalendar(true);
-    try {
-      const res = await fetch(
-        `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${new Date().toISOString()}&maxResults=20&orderBy=startTime&singleEvents=true`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      const data = await res.json();
-      if (data.items) {
-        setCalendarEvents(data.items.map((item: any) => ({
-          id: item.id,
-          title: item.summary,
-          start: item.start.dateTime || item.start.date,
-          end: item.end.dateTime || item.end.date,
-          location: item.location,
-          color: '#3b82f6'
-        })));
-      }
-    } catch (error) {
-      console.error(error);
-    } finally {
-      setIsLoadingCalendar(false);
-    }
-  }, []);
-
-  const handleGoogleLogin = () => {
-    const client = (window as any).google.accounts.oauth2.initTokenClient({
-      client_id: googleClientId.trim(),
-      scope: 'https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
-      callback: (response: any) => {
-        if (response.access_token) {
-          setAccessToken(response.access_token);
-          fetchGoogleCalendarEvents(response.access_token);
-        }
-      },
-    });
-    client.requestAccessToken();
-  };
 
   const fetchMails = useCallback(async () => {
     setIsLoadingMails(true);
@@ -218,13 +190,25 @@ const App: React.FC = () => {
     }
   }, []);
 
-  const refreshAll = useCallback(() => {
-    fetchMails();
-    fetchNews();
-    fetchIntelligence();
-    fetchTasksFromCloud();
-    if (accessToken) fetchGoogleCalendarEvents(accessToken);
-  }, [fetchMails, fetchNews, fetchIntelligence, fetchTasksFromCloud, fetchGoogleCalendarEvents, accessToken]);
+  const refreshAll = useCallback(async () => {
+    setIsSyncing(true);
+    await Promise.all([
+      fetchMails(),
+      fetchNews(),
+      fetchIntelligence(),
+      fetchTasksFromCloud()
+    ]);
+    setIsSyncing(false);
+  }, [fetchMails, fetchNews, fetchIntelligence, fetchTasksFromCloud]);
+
+  // Initial and Periodic Sync
+  useEffect(() => {
+    if (unlocked) {
+      refreshAll();
+      const syncInterval = setInterval(refreshAll, 60000); // 60 seconds auto-sync
+      return () => clearInterval(syncInterval);
+    }
+  }, [unlocked, refreshAll]);
 
   useEffect(() => {
     const isUnlocked = localStorage.getItem('ceo_unlocked') === 'true';
@@ -233,15 +217,25 @@ const App: React.FC = () => {
     return () => clearInterval(timer);
   }, []);
 
-  useEffect(() => { if (unlocked) refreshAll(); }, [unlocked, refreshAll]);
-
+  // Action Handlers
   const addTask = (text: string, type: TaskType) => {
     const newTask: Task = { id: Math.random().toString(36).substr(2, 9), text, completed: false, type, createdAt: Date.now() };
-    setTasks(prev => [...prev, newTask]);
+    const updatedTasks = [...tasks, newTask];
+    setTasks(updatedTasks);
+    saveTasksToCloud(updatedTasks);
   };
 
-  const toggleTask = (id: string) => setTasks(prev => prev.map(t => t.id === id ? { ...t, completed: !t.completed } : t));
-  const deleteTask = (id: string) => setTasks(prev => prev.filter(t => t.id !== id));
+  const toggleTask = (id: string) => {
+    const updatedTasks = tasks.map(t => t.id === id ? { ...t, completed: !t.completed } : t);
+    setTasks(updatedTasks);
+    saveTasksToCloud(updatedTasks);
+  };
+
+  const deleteTask = (id: string) => {
+    const updatedTasks = tasks.filter(t => t.id !== id);
+    setTasks(updatedTasks);
+    saveTasksToCloud(updatedTasks);
+  };
 
   const renderWeatherIcon = (code: string) => {
     switch (code) {
@@ -287,7 +281,6 @@ const App: React.FC = () => {
               <TrendingUp size={16} className="text-emerald-600/30 dark:text-emerald-500/30" />
               <h3 className="text-[13px] font-black tracking-[0.6em] text-gray-900/40 dark:text-white/30 uppercase">Strategic Briefing</h3>
             </div>
-            
             <div className="space-y-8 overflow-y-auto max-h-[500px] pr-2 custom-scrollbar">
               {isLoadingNews ? (
                 <div className="animate-pulse space-y-6">
@@ -377,7 +370,6 @@ const App: React.FC = () => {
       <UnicornBackground />
       <div className="max-w-[1600px] mx-auto relative z-10">
         <header className="flex flex-col gap-4 md:gap-8 pt-2 md:pt-10 mb-8 md:mb-16">
-          
           <div className="animate-fade-up flex justify-start pl-1">
             <img 
               src={theme === 'dark' ? LOGO_WHITE : LOGO_BLACK} 
@@ -385,7 +377,6 @@ const App: React.FC = () => {
               alt="FUP Logo" 
             />
           </div>
-
           <div className="animate-fade-up flex flex-col md:flex-row md:items-baseline gap-2 md:gap-6">
             <h1 className="text-xl md:text-4xl font-extrabold tracking-[0.3em] text-gray-900 dark:text-white uppercase leading-none">
               CEO <span className="text-gray-400 dark:text-white/10 mx-1 md:mx-2 font-light">_</span> 
@@ -393,7 +384,6 @@ const App: React.FC = () => {
               Dashboard
             </h1>
           </div>
-
           <div className="w-full animate-fade-up">
             <div className="hidden md:flex items-stretch gap-3 bg-white/80 dark:bg-white/5 border border-gray-200 dark:border-white/10 p-3 rounded-[32px] shadow-sm">
               <div className="flex gap-3">
@@ -425,37 +415,18 @@ const App: React.FC = () => {
                   ) : <div className="w-5 h-5 rounded-full bg-gray-400/20 animate-pulse" />}
                 </div>
               </div>
-
-              <div className="flex-1 flex items-center justify-between px-8 py-2 ml-4 bg-gray-100/50 dark:bg-white/[0.03] border border-gray-100 dark:border-white/5 rounded-2xl">
-                <div className="flex flex-col">
+              <div className="flex-1 flex items-center justify-between px-8 py-2 ml-4 bg-gray-100/50 dark:bg-white/[0.03] border border-gray-100 dark:border-white/5 rounded-2xl relative overflow-hidden">
+                <div className="flex flex-col relative z-10">
                   <div className="text-gray-400 dark:text-white/30 text-[13px] font-black tracking-[0.2em] uppercase">
                     {currentTime.toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'short' })}
                   </div>
-                  <div className="text-[10px] text-emerald-500 font-bold tracking-[0.25em] uppercase opacity-60 mt-1">
-                    Strategic Grid Balanced
+                  <div className={`text-[10px] font-bold tracking-[0.25em] uppercase mt-1 transition-colors duration-500 ${isSyncing ? 'text-blue-500 animate-pulse' : 'text-emerald-500 opacity-60'}`}>
+                    {isSyncing ? 'Synchronizing Neural Grid...' : 'Strategic Grid Balanced'}
                   </div>
                 </div>
-                <div className="text-gray-900 dark:text-white text-5xl font-black tracking-tighter leading-none tabular-nums">
+                <div className="text-gray-900 dark:text-white text-5xl font-black tracking-tighter leading-none tabular-nums relative z-10">
                   {currentTime.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })}
                 </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-4 gap-3 sm:gap-4 md:hidden w-full">
-              <button onClick={toggleTheme} className="col-span-1 aspect-square flex items-center justify-center rounded-2xl border border-gray-200 dark:border-white/10 bg-white/80 dark:bg-white/5 text-gray-600 dark:text-white/60 shadow-sm">{theme === 'dark' ? <Sun size={24} /> : <Moon size={24} />}</button>
-              <button onClick={() => setShowSettings(!showSettings)} className={`col-span-1 aspect-square flex items-center justify-center rounded-2xl border shadow-sm ${showSettings ? 'bg-blue-600 border-blue-500 text-white' : 'border-gray-200 dark:border-white/10 bg-white/80 dark:bg-white/5 text-gray-600 dark:text-white/60'}`}><Settings size={24} /></button>
-              <div className="col-span-2 row-span-2 flex flex-col justify-between p-5 rounded-2xl border border-gray-200 dark:border-white/10 bg-white/80 dark:bg-white/5 shadow-sm">
-                <div className="text-gray-400 dark:text-white/30 text-[12px] font-black tracking-widest uppercase">{currentTime.toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'short' })}</div>
-                <div className="flex flex-col items-end mt-4">
-                  <div className="text-gray-900 dark:text-white text-5xl font-black tracking-tighter leading-none mb-1">{currentTime.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })}</div>
-                  <div className="text-[8px] text-emerald-500 font-bold tracking-widest uppercase opacity-60">Strategic Grid Balanced</div>
-                </div>
-              </div>
-              <div className="col-span-1 aspect-square flex flex-col items-center justify-center rounded-2xl border border-gray-200 dark:border-white/10 bg-white/80 dark:bg-white/5 shadow-sm">
-                {weather ? <><div className="mb-0.5">{renderWeatherIcon(weather.icon)}</div><div className="text-[12px] font-black text-gray-900 dark:text-white">{weather.temp}°</div></> : <div className="w-5 h-5 rounded-full bg-gray-400/20 animate-pulse" />}
-              </div>
-              <div className="col-span-1 aspect-square flex flex-col items-center justify-center rounded-2xl border border-gray-200 dark:border-white/10 bg-white/80 dark:bg-white/5 shadow-sm">
-                {airQuality ? <><div className="mb-0.5">{renderAirFace(airQuality.face)}</div><span className="text-[10px] font-black text-gray-900 dark:text-white uppercase tracking-tighter">{airQuality.status}</span></> : <div className="w-5 h-5 rounded-full bg-gray-400/20 animate-pulse" />}
               </div>
             </div>
           </div>
@@ -477,12 +448,11 @@ const App: React.FC = () => {
                   }} 
                   className="w-full bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl px-5 py-4 text-[10px] font-mono text-gray-600 dark:text-white/40 focus:outline-none" 
                 />
-                <button onClick={refreshAll} className="px-6 py-3 rounded-xl bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-transform active:scale-95"><RefreshCw size={14} /> Global Sync</button>
+                <button onClick={refreshAll} className="px-6 py-3 rounded-xl bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-transform active:scale-95"><RefreshCw size={14} /> Manual Refresh</button>
               </div>
               <div className="space-y-5">
                 <h3 className="text-[11px] font-black uppercase tracking-[0.5em] text-purple-600 dark:text-purple-500">Security</h3>
-                <input type="text" placeholder="OAuth Client ID" value={googleClientId} onChange={(e) => setGoogleClientId(e.target.value)} className="w-full bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl px-5 py-4 text-[10px] font-mono text-gray-600 dark:text-white/40" />
-                <button onClick={handleGoogleLogin} className="w-full py-4 rounded-xl bg-black dark:bg-white text-white dark:text-black font-black uppercase tracking-[0.3em] text-[10px] flex items-center justify-center gap-3"><Key size={16} /> Authorize Access</button>
+                <button onClick={() => { localStorage.removeItem('ceo_unlocked'); setUnlocked(false); }} className="w-full py-4 rounded-xl bg-red-500/10 text-red-500 border border-red-500/20 font-black uppercase tracking-[0.3em] text-[10px] flex items-center justify-center gap-3"><LogOut size={16} /> Wipe Local Access</button>
               </div>
             </div>
           </div>
