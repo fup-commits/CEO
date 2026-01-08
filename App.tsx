@@ -143,7 +143,6 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // Fix: Added refreshAll function to trigger both mail and news fetching
   const refreshAll = useCallback(() => {
     fetchMails();
     fetchNews();
@@ -151,10 +150,9 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (unlocked) {
-      fetchMails();
-      fetchNews();
+      refreshAll();
     }
-  }, [unlocked, fetchMails, fetchNews]);
+  }, [unlocked, refreshAll]);
 
   if (!unlocked) {
     return (
@@ -189,12 +187,11 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen relative pb-12 pt-8 px-6 lg:px-12">
+    <div className="main-content relative">
       <UnicornBackground />
       
       <div className="max-w-[1600px] mx-auto relative z-10">
-        {/* Top Header */}
-        <header className="flex flex-col md:flex-row justify-between items-start md:items-end mb-16 gap-8">
+        <header className="flex flex-col md:flex-row justify-between items-start md:items-end mb-16 gap-8 pt-4">
           <div className="animate-fade-up">
             <div className="flex items-center gap-3 mb-4">
               <div className="h-1.5 w-1.5 rounded-full bg-emerald-400"></div>
@@ -215,7 +212,6 @@ const App: React.FC = () => {
           </div>
         </header>
 
-        {/* Mail Section */}
         <section className="mb-12 animate-fade-up" style={{ animationDelay: '0.2s' }}>
           <div className="flex items-center justify-between mb-8">
             <div className="flex items-center gap-3">
@@ -234,32 +230,13 @@ const App: React.FC = () => {
           </div>
         </section>
 
-        {/* Main Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-          {/* Left: Tasks & News */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start pb-20">
           <div className="lg:col-span-8 space-y-8">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              <TaskCard 
-                title="Today's Priorities" 
-                type={TaskType.TODAY} 
-                tasks={tasks.filter(t => t.type === TaskType.TODAY)}
-                onAddTask={addTask}
-                onToggleTask={toggleTask}
-                onDeleteTask={deleteTask}
-                className="h-[450px] animate-fade-up"
-              />
-              <TaskCard 
-                title="Executive Checklist" 
-                type={TaskType.CHECKLIST} 
-                tasks={tasks.filter(t => t.type === TaskType.CHECKLIST)}
-                onAddTask={addTask}
-                onToggleTask={toggleTask}
-                onDeleteTask={deleteTask}
-                className="h-[450px] animate-fade-up"
-              />
+              <TaskCard title="Today's Priorities" type={TaskType.TODAY} tasks={tasks.filter(t => t.type === TaskType.TODAY)} onAddTask={addTask} onToggleTask={toggleTask} onDeleteTask={deleteTask} className="h-[450px] animate-fade-up" />
+              <TaskCard title="Executive Checklist" type={TaskType.CHECKLIST} tasks={tasks.filter(t => t.type === TaskType.CHECKLIST)} onAddTask={addTask} onToggleTask={toggleTask} onDeleteTask={deleteTask} className="h-[450px] animate-fade-up" />
             </div>
 
-            {/* AI Strategic News */}
             <div className="glass-panel p-10 min-h-[500px] animate-fade-up">
               <div className="flex items-center justify-between mb-10">
                 <div className="flex items-center gap-3">
@@ -278,9 +255,7 @@ const App: React.FC = () => {
                     <Sparkles size={16} className="text-blue-300" />
                     <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-blue-300/80">AI Morning Briefing</span>
                   </div>
-                  <p className="text-2xl font-playfair italic text-white/90 leading-snug">
-                    "{aiSummary}"
-                  </p>
+                  <p className="text-2xl font-playfair italic text-white/90 leading-snug">"{aiSummary}"</p>
                 </div>
               )}
 
@@ -292,12 +267,7 @@ const App: React.FC = () => {
                       <div className="h-[1px] flex-1 bg-white/5"></div>
                       <span className="text-[10px] text-white/20">{item.pubDate}</span>
                     </div>
-                    <a 
-                      href={item.link} 
-                      target="_blank" 
-                      rel="noopener noreferrer" 
-                      className="text-xl font-light text-white/70 group-hover:text-white transition-all flex items-center justify-between leading-snug"
-                    >
+                    <a href={item.link} target="_blank" rel="noopener noreferrer" className="text-xl font-light text-white/70 group-hover:text-white transition-all flex items-center justify-between leading-snug">
                       {item.title}
                       <ArrowUpRight size={18} className="opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-all duration-300 shrink-0 ml-4" />
                     </a>
@@ -307,53 +277,23 @@ const App: React.FC = () => {
             </div>
           </div>
 
-          {/* Right: Yesterday & Schedule */}
           <div className="lg:col-span-4 space-y-8 animate-fade-up" style={{ animationDelay: '0.3s' }}>
-            <TaskCard 
-              title="Yesterday Review" 
-              type={TaskType.YESTERDAY} 
-              tasks={tasks.filter(t => t.type === TaskType.YESTERDAY)}
-              onAddTask={addTask}
-              onToggleTask={toggleTask}
-              onDeleteTask={deleteTask}
-              className="h-[320px]"
-            />
-
+            <TaskCard title="Yesterday Review" type={TaskType.YESTERDAY} tasks={tasks.filter(t => t.type === TaskType.YESTERDAY)} onAddTask={addTask} onToggleTask={toggleTask} onDeleteTask={deleteTask} className="h-[320px]" />
+            
             <div className="glass-panel p-8 min-h-[350px]">
               <h3 className="text-[11px] font-bold tracking-[0.4em] text-white/40 uppercase mb-10">Agenda</h3>
               <div className="space-y-8">
-                <div className="relative pl-6">
-                  <div className="absolute left-0 top-1 bottom-1 w-[2px] bg-blue-500"></div>
-                  <div className="text-[10px] text-white/30 font-bold uppercase mb-1">09:00 — 10:30</div>
-                  <div className="text-lg font-light text-white">Internal Strategy Board</div>
-                </div>
-                <div className="relative pl-6 opacity-40">
-                  <div className="absolute left-0 top-1 bottom-1 w-[2px] bg-purple-500"></div>
-                  <div className="text-[10px] text-white/30 font-bold uppercase mb-1">13:00 — 14:30</div>
-                  <div className="text-lg font-light text-white">Global Partners Sync</div>
-                </div>
-                <div className="relative pl-6 opacity-40">
-                  <div className="absolute left-0 top-1 bottom-1 w-[2px] bg-orange-500"></div>
-                  <div className="text-[10px] text-white/30 font-bold uppercase mb-1">16:30 — 17:00</div>
-                  <div className="text-lg font-light text-white">Advisory Panel Call</div>
-                </div>
+                <div className="relative pl-6"><div className="absolute left-0 top-1 bottom-1 w-[2px] bg-blue-500"></div><div className="text-[10px] text-white/30 font-bold uppercase mb-1">09:00 — 10:30</div><div className="text-lg font-light text-white">Internal Strategy Board</div></div>
+                <div className="relative pl-6 opacity-40"><div className="absolute left-0 top-1 bottom-1 w-[2px] bg-purple-500"></div><div className="text-[10px] text-white/30 font-bold uppercase mb-1">13:00 — 14:30</div><div className="text-lg font-light text-white">Global Partners Sync</div></div>
+                <div className="relative pl-6 opacity-40"><div className="absolute left-0 top-1 bottom-1 w-[2px] bg-orange-500"></div><div className="text-[10px] text-white/30 font-bold uppercase mb-1">16:30 — 17:00</div><div className="text-lg font-light text-white">Advisory Panel Call</div></div>
               </div>
             </div>
 
-            <button 
-              onClick={handleLogout} 
-              className="w-full glass-panel p-6 flex items-center justify-center gap-4 text-red-400/60 hover:text-red-400 hover:bg-red-400/5 transition-all text-[11px] font-bold uppercase tracking-[0.3em]"
-            >
+            <button onClick={handleLogout} className="w-full glass-panel p-6 flex items-center justify-center gap-4 text-red-400/60 hover:text-red-400 hover:bg-red-400/5 transition-all text-[11px] font-bold uppercase tracking-[0.3em]">
               <LogOut size={18} strokeWidth={1.5} /> Terminate Session
             </button>
           </div>
         </div>
-
-        <footer className="mt-24 pt-10 border-t border-white/5 text-center">
-          <p className="text-[10px] uppercase tracking-[0.6em] text-white/10 font-light">
-            V3.0 Private Executive Intelligence Hub • FUP Global Partners
-          </p>
-        </footer>
       </div>
     </div>
   );
