@@ -10,7 +10,7 @@ import {
   ChevronRight, LogOut, ArrowUpRight, GripVertical,
   Settings, CheckCircle2, Key, Sun, Moon,
   Cloud, Sun as SunIcon, CloudRain, Wind, Droplets,
-  Smile, Meh, Frown, Skull, Hash
+  Smile, Meh, Frown, Skull, Hash, Zap
 } from 'lucide-react';
 
 const PIN_CODE = '0925';
@@ -53,9 +53,7 @@ const App: React.FC = () => {
   const [weather, setWeather] = useState<{ temp: number; humidity: number; icon: string } | null>(null);
   const [airQuality, setAirQuality] = useState<{ value: number; status: string; face: 'good' | 'normal' | 'bad' | 'danger' } | null>(null);
 
-  const [googleClientId, setGoogleClientId] = useState('');
   const [googleCalendarUrl, setGoogleCalendarUrl] = useState(DEFAULT_CALENDAR_URL);
-  const [accessToken, setAccessToken] = useState<string | null>(null);
 
   const [layout, setLayout] = useState({
     top: ['comms'],
@@ -63,7 +61,6 @@ const App: React.FC = () => {
     right: ['yesterday', 'agenda', 'logout']
   });
 
-  // State reference to prevent stale closure & track sync timing
   const tasksRef = useRef<Task[]>([]);
   const lastUserActionTimestamp = useRef<number>(0);
 
@@ -94,14 +91,12 @@ const App: React.FC = () => {
 
   const toggleTheme = () => setTheme(prev => prev === 'dark' ? 'light' : 'dark');
 
-  // 핵심: 클라우드 저장 로직 (POST) - text/plain 브릿지 사용으로 CORS 우회 및 성공률 극대화
+  // Cloud Save 로직 (POST)
   const saveTasksToCloud = useCallback(async (currentTasks: Task[]) => {
     if (!storageUrl || !unlocked) return;
-    lastUserActionTimestamp.current = Date.now(); // 내가 수정한 시간 기록
+    lastUserActionTimestamp.current = Date.now();
     try {
       setIsSyncing(true);
-      // Google Apps Script는 Content-Type: application/json 에 민감할 수 있으므로
-      // text/plain으로 JSON을 감싸서 보내는 것이 가장 안정적입니다.
       await fetch(storageUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -110,33 +105,35 @@ const App: React.FC = () => {
       localStorage.setItem('ceo_tasks', JSON.stringify(currentTasks));
       tasksRef.current = currentTasks;
     } catch (e) {
-      console.error("Cloud save error", e);
+      console.error("Cloud save failed", e);
     } finally {
-      setTimeout(() => setIsSyncing(false), 800);
+      setTimeout(() => setIsSyncing(false), 500);
     }
   }, [storageUrl, unlocked]);
 
-  // 핵심: 클라우드 불러오기 로직 (GET)
+  // Cloud Pull 로직 (GET)
   const fetchTasksFromCloud = useCallback(async () => {
     if (!storageUrl || !unlocked) return;
     
-    // 사용자가 방금(최근 5초 이내) 액션을 취했다면 클라우드 데이터를 덮어쓰지 않음
-    if (Date.now() - lastUserActionTimestamp.current < 5000) return;
+    // 사용자가 방금 작업을 수행했다면 클라우드 데이터를 무시 (덮어쓰기 방지)
+    if (Date.now() - lastUserActionTimestamp.current < 8000) return;
 
     try {
       const res = await fetch(`${storageUrl}?action=getTasks&t=${Date.now()}`);
       const data = await res.json();
       
       if (data && Array.isArray(data)) {
-        // 클라우드 데이터가 있고, 현재 로컬 데이터와 다를 때만 업데이트
-        if (JSON.stringify(data) !== JSON.stringify(tasksRef.current)) {
+        const cloudDataStr = JSON.stringify(data);
+        const localDataStr = JSON.stringify(tasksRef.current);
+        
+        if (cloudDataStr !== localDataStr) {
           setTasks(data);
           tasksRef.current = data;
-          localStorage.setItem('ceo_tasks', JSON.stringify(data));
+          localStorage.setItem('ceo_tasks', cloudDataStr);
         }
       }
     } catch (e) {
-      console.warn("Cloud pull failed, using local cache.");
+      console.warn("Cloud pull failed");
     }
   }, [storageUrl, unlocked]);
 
@@ -220,26 +217,21 @@ const App: React.FC = () => {
       fetchIntelligence(),
       fetchTasksFromCloud()
     ]);
-    setIsSyncing(false);
+    setTimeout(() => setIsSyncing(false), 500);
   }, [fetchMails, fetchNews, fetchIntelligence, fetchTasksFromCloud]);
 
-  // 주기적 동기화 및 가시성 기반 동기화 (기기 연동의 핵심)
+  // 동기화 주기: 1분 (60000ms)
   useEffect(() => {
     if (unlocked) {
       refreshAll();
-      
-      const syncInterval = setInterval(refreshAll, 10000); // 10초 주기로 더 공격적인 동기화
-      
+      const syncInterval = setInterval(refreshAll, 60000); 
       const handleVisibilityChange = () => {
         if (document.visibilityState === 'visible') {
-          console.log("Strategic Grid Refocus: Syncing...");
           refreshAll();
         }
       };
-      
       document.addEventListener('visibilitychange', handleVisibilityChange);
       window.addEventListener('focus', handleVisibilityChange);
-      
       return () => {
         clearInterval(syncInterval);
         document.removeEventListener('visibilitychange', handleVisibilityChange);
@@ -255,7 +247,6 @@ const App: React.FC = () => {
     return () => clearInterval(timer);
   }, []);
 
-  // 사용자 액션: 즉각 반영 및 클라우드 전송
   const addTask = (text: string, type: TaskType) => {
     const newTask: Task = { id: Math.random().toString(36).substr(2, 9), text, completed: false, type, createdAt: Date.now() };
     const updatedTasks = [...tasks, newTask];
@@ -318,9 +309,12 @@ const App: React.FC = () => {
       case 'news':
         return (
           <div className="glass-panel p-10 space-y-8 h-full min-h-[400px]">
-            <div className="flex items-center gap-5 mb-2">
-              <TrendingUp size={16} className="text-emerald-600/30 dark:text-emerald-500/30" />
-              <h3 className="text-[13px] font-black tracking-[0.6em] text-gray-900/40 dark:text-white/30 uppercase">Strategic Briefing</h3>
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-5">
+                <TrendingUp size={16} className="text-emerald-600/30 dark:text-emerald-500/30" />
+                <h3 className="text-[13px] font-black tracking-[0.6em] text-gray-900/40 dark:text-white/30 uppercase">Strategic Briefing</h3>
+              </div>
+              <button onClick={fetchNews} className="text-gray-300 dark:text-white/10 hover:text-blue-500 transition-all"><RefreshCw size={14} /></button>
             </div>
             <div className="space-y-8 overflow-y-auto max-h-[500px] pr-2 custom-scrollbar">
               {isLoadingNews ? (
@@ -340,10 +334,6 @@ const App: React.FC = () => {
                       <span className="text-[10px] text-gray-400 dark:text-white/20 font-bold">{item.pubDate}</span>
                     </div>
                     <p className="text-[15px] font-black text-gray-900 dark:text-white/80 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-all leading-snug">{item.title}</p>
-                    <div className="mt-3 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <span className="text-[9px] font-black uppercase text-blue-600">Full Report</span>
-                      <ArrowUpRight size={12} className="text-blue-600" />
-                    </div>
                   </a>
                 ))
               ) : (
@@ -461,43 +451,24 @@ const App: React.FC = () => {
                   <div className="text-gray-400 dark:text-white/30 text-[13px] font-black tracking-[0.2em] uppercase">
                     {currentTime.toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'short' })}
                   </div>
-                  <div className={`text-[10px] font-bold tracking-[0.25em] uppercase mt-1 transition-colors duration-500 ${isSyncing ? 'text-blue-500 animate-pulse' : 'text-emerald-500 opacity-60'}`}>
-                    {isSyncing ? 'Synchronizing Neural Link...' : 'Strategic Grid Balanced'}
+                  <div className="flex items-center gap-2 mt-1">
+                    {/* 푸른 불 아이콘 (LED) */}
+                    <div className={`w-2 h-2 rounded-full shadow-[0_0_8px_rgba(59,130,246,0.8)] ${isSyncing ? 'bg-blue-400 animate-pulse' : 'bg-blue-600'}`}></div>
+                    <div className={`text-[10px] font-bold tracking-[0.25em] uppercase transition-colors duration-500 ${isSyncing ? 'text-blue-500' : 'text-emerald-500 opacity-60'}`}>
+                      {isSyncing ? 'Syncing...' : 'Neural Link Active'}
+                    </div>
                   </div>
                 </div>
-                <div className="text-gray-900 dark:text-white text-5xl font-black tracking-tighter leading-none tabular-nums relative z-10">
-                  {currentTime.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })}
+                <div className="flex items-center gap-6">
+                  <button onClick={refreshAll} className="p-2 text-gray-400 hover:text-blue-500 transition-all"><RefreshCw size={24} className={isSyncing ? 'animate-spin' : ''} /></button>
+                  <div className="text-gray-900 dark:text-white text-5xl font-black tracking-tighter leading-none tabular-nums relative z-10">
+                    {currentTime.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })}
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         </header>
-
-        {showSettings && (
-          <div className="glass-panel p-8 md:p-12 mb-12 animate-fade-up border-blue-500/20">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-              <div className="space-y-5">
-                <h3 className="text-[11px] font-black uppercase tracking-[0.5em] text-blue-600 dark:text-blue-500">Cloud Connectivity</h3>
-                <input 
-                  type="text" 
-                  placeholder="Storage Endpoint URL" 
-                  value={storageUrl} 
-                  onChange={(e) => {
-                    const url = e.target.value;
-                    setStorageUrl(url);
-                    localStorage.setItem('ceo_storage_url', url);
-                  }} 
-                  className="w-full bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl px-5 py-4 text-[10px] font-mono text-gray-600 dark:text-white/40 focus:outline-none" 
-                />
-                <button onClick={refreshAll} className="px-6 py-3 rounded-xl bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-transform active:scale-95"><RefreshCw size={14} /> Global Refresh</button>
-              </div>
-              <div className="space-y-5">
-                <h3 className="text-[11px] font-black uppercase tracking-[0.5em] text-purple-600 dark:text-purple-500">Security</h3>
-                <button onClick={() => { localStorage.removeItem('ceo_unlocked'); setUnlocked(false); }} className="w-full py-4 rounded-xl bg-red-500/10 text-red-500 border border-red-500/20 font-black uppercase tracking-[0.3em] text-[10px] flex items-center justify-center gap-3 transition-colors hover:bg-red-500 hover:text-white"><LogOut size={16} /> Disconnect Device</button>
-              </div>
-            </div>
-          </div>
-        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 md:gap-10 items-start pb-40">
           <div className="lg:col-span-8 space-y-10">

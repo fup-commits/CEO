@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { Task, TaskType } from '../types';
-import { Plus, Check, Circle, Trash2, Hash } from 'lucide-react';
+import { Plus, Check, Circle, Trash2, Hash, RefreshCw } from 'lucide-react';
 
 interface TaskCardProps {
   title: string;
@@ -26,9 +26,17 @@ const TaskCard: React.FC<TaskCardProps> = ({ title, type, tasks, onAddTask, onTo
 
   return (
     <div className={`glass-panel p-8 md:p-10 flex flex-col h-[480px] md:h-[520px] ${className}`}>
-      <div className="flex items-center gap-5 mb-10 shrink-0">
-        <Hash size={16} className="text-blue-600/30 dark:text-blue-500/30" />
-        <h3 className="text-[13px] font-black tracking-[0.6em] text-gray-900/40 dark:text-white/30 uppercase">{title}</h3>
+      <div className="flex items-center justify-between mb-10 shrink-0">
+        <div className="flex items-center gap-5">
+          <Hash size={16} className="text-blue-600/30 dark:text-blue-500/30" />
+          <h3 className="text-[13px] font-black tracking-[0.6em] text-gray-900/40 dark:text-white/30 uppercase">{title}</h3>
+        </div>
+        <button 
+          onClick={() => window.location.reload()} 
+          className="text-gray-300 dark:text-white/10 hover:text-blue-500 transition-all"
+        >
+          <RefreshCw size={14} />
+        </button>
       </div>
 
       <div className="flex-1 space-y-7 mb-6 overflow-y-auto pr-3 custom-scrollbar pb-12">
@@ -52,7 +60,6 @@ const TaskCard: React.FC<TaskCardProps> = ({ title, type, tasks, onAddTask, onTo
             </div>
           ))
         )}
-        {/* 하단 짤림 방지 스페이서 */}
         <div className="h-4 shrink-0"></div>
       </div>
 
