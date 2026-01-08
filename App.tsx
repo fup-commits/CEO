@@ -91,7 +91,6 @@ const App: React.FC = () => {
 
   const toggleTheme = () => setTheme(prev => prev === 'dark' ? 'light' : 'dark');
 
-  // GAS 최적화: POST - 대표님의 Code.gs 구조에 맞춰 데이터를 순수하게 전송
   const saveTasksToCloud = useCallback(async (currentTasks: Task[]) => {
     if (!storageUrl || !unlocked) return;
     lastUserActionTimestamp.current = Date.now();
@@ -100,7 +99,7 @@ const App: React.FC = () => {
       await fetch(storageUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(currentTasks) // 순수하게 배열만 전송
+        body: JSON.stringify(currentTasks)
       });
       localStorage.setItem('ceo_tasks', JSON.stringify(currentTasks));
       tasksRef.current = currentTasks;
@@ -111,11 +110,8 @@ const App: React.FC = () => {
     }
   }, [storageUrl, unlocked]);
 
-  // GAS 최적화: GET - 대표님의 Code.gs가 반환하는 PropertiesService 데이터를 그대로 파싱
   const fetchTasksFromCloud = useCallback(async () => {
     if (!storageUrl || !unlocked) return;
-    
-    // 사용자가 입력 중일 때는 덮어쓰지 않음
     if (Date.now() - lastUserActionTimestamp.current < 5000) return;
 
     try {
@@ -220,7 +216,6 @@ const App: React.FC = () => {
     setTimeout(() => setIsSyncing(false), 500);
   }, [fetchMails, fetchNews, fetchIntelligence, fetchTasksFromCloud]);
 
-  // 동기화 주기: 1분 (60,000ms)
   useEffect(() => {
     if (unlocked) {
       refreshAll();
@@ -273,18 +268,18 @@ const App: React.FC = () => {
 
   const renderWeatherIcon = (code: string) => {
     switch (code) {
-      case 'rain': return <CloudRain size={24} className="text-blue-400" />;
-      case 'cloud': return <Cloud size={24} className="text-gray-400" />;
-      default: return <SunIcon size={24} className="text-orange-400" />;
+      case 'rain': return <CloudRain size={20} className="text-blue-400" />;
+      case 'cloud': return <Cloud size={20} className="text-gray-400" />;
+      default: return <SunIcon size={20} className="text-orange-400" />;
     }
   };
 
   const renderAirFace = (face: 'good' | 'normal' | 'bad' | 'danger') => {
     switch (face) {
-      case 'good': return <Smile size={24} className="text-emerald-500" />;
-      case 'normal': return <Meh size={24} className="text-yellow-500" />;
-      case 'bad': return <Frown size={24} className="text-orange-500" />;
-      case 'danger': return <Skull size={24} className="text-red-500" />;
+      case 'good': return <Smile size={20} className="text-emerald-500" />;
+      case 'normal': return <Meh size={20} className="text-yellow-500" />;
+      case 'bad': return <Frown size={20} className="text-orange-500" />;
+      case 'danger': return <Skull size={20} className="text-red-500" />;
     }
   };
 
@@ -420,57 +415,55 @@ const App: React.FC = () => {
             </h1>
           </div>
           <div className="w-full animate-fade-up">
-            <div className="hidden md:flex items-stretch gap-3 bg-white/80 dark:bg-white/5 border border-gray-200 dark:border-white/10 p-3 rounded-[32px] shadow-sm">
-              <div className="flex gap-3">
-                <button onClick={toggleTheme} className="w-[80px] h-[80px] flex items-center justify-center rounded-2xl border border-gray-200 dark:border-white/10 bg-white/90 dark:bg-white/5 text-gray-600 dark:text-white/60 transition-all hover:scale-[1.03] active:scale-95 shadow-sm">
-                  {theme === 'dark' ? <Sun size={28} /> : <Moon size={28} />}
+            <div className="flex flex-col md:flex-row items-stretch gap-3 bg-white/80 dark:bg-white/5 border border-gray-200 dark:border-white/10 p-3 rounded-[32px] shadow-sm">
+              <div className="grid grid-cols-4 md:flex gap-2 md:gap-3">
+                <button onClick={toggleTheme} className="aspect-square md:w-[80px] md:h-[80px] flex items-center justify-center rounded-2xl border border-gray-200 dark:border-white/10 bg-white/90 dark:bg-white/5 text-gray-600 dark:text-white/60 transition-all hover:scale-[1.03] active:scale-95 shadow-sm">
+                  {theme === 'dark' ? <Sun size={20} className="md:scale-150" /> : <Moon size={20} className="md:scale-150" />}
                 </button>
-                <button onClick={() => setShowSettings(!showSettings)} className={`w-[80px] h-[80px] flex items-center justify-center rounded-2xl border transition-all hover:scale-[1.03] active:scale-95 shadow-sm ${showSettings ? 'bg-blue-600 border-blue-500 text-white' : 'border-gray-200 dark:border-white/10 bg-white/90 dark:bg-white/5 text-gray-600 dark:text-white/60'}`}>
-                  <Settings size={28} />
+                <button onClick={() => setShowSettings(!showSettings)} className={`aspect-square md:w-[80px] md:h-[80px] flex items-center justify-center rounded-2xl border transition-all hover:scale-[1.03] active:scale-95 shadow-sm ${showSettings ? 'bg-blue-600 border-blue-500 text-white' : 'border-gray-200 dark:border-white/10 bg-white/90 dark:bg-white/5 text-gray-600 dark:text-white/60'}`}>
+                  <Settings size={20} className="md:scale-150" />
                 </button>
-                <div className="w-[80px] h-[80px] flex flex-col items-center justify-center rounded-2xl border border-gray-200 dark:border-white/10 bg-white/90 dark:bg-white/5 shadow-sm">
+                <div className="aspect-square md:w-[80px] md:h-[80px] flex flex-col items-center justify-center rounded-2xl border border-gray-200 dark:border-white/10 bg-white/90 dark:bg-white/5 shadow-sm">
                   {weather ? (
                     <>
                       <div className="mb-1">{renderWeatherIcon(weather.icon)}</div>
                       <div className="flex items-center gap-1 leading-none">
-                        <span className="text-[13px] font-black text-gray-900 dark:text-white">{weather.temp}°</span>
-                        <span className="text-[9px] font-bold text-blue-500/60 dark:text-blue-400/50">{weather.humidity}%</span>
+                        <span className="text-[10px] md:text-[13px] font-black text-gray-900 dark:text-white">{weather.temp}°</span>
                       </div>
                     </>
-                  ) : <div className="w-5 h-5 rounded-full bg-gray-400/20 animate-pulse" />}
+                  ) : <div className="w-4 h-4 rounded-full bg-gray-400/20 animate-pulse" />}
                 </div>
-                <div className="w-[80px] h-[80px] flex flex-col items-center justify-center rounded-2xl border border-gray-200 dark:border-white/10 bg-white/90 dark:bg-white/5 px-0.5 shadow-sm">
+                <div className="aspect-square md:w-[80px] md:h-[80px] flex flex-col items-center justify-center rounded-2xl border border-gray-200 dark:border-white/10 bg-white/90 dark:bg-white/5 px-0.5 shadow-sm">
                   {airQuality ? (
                     <>
                       <div className="mb-1">{renderAirFace(airQuality.face)}</div>
-                      <span className="text-[11px] font-black text-gray-900 dark:text-white uppercase tracking-tighter leading-none">
+                      <span className="text-[9px] md:text-[11px] font-black text-gray-900 dark:text-white uppercase tracking-tighter leading-none">
                         {airQuality.status}
                       </span>
                     </>
-                  ) : <div className="w-5 h-5 rounded-full bg-gray-400/20 animate-pulse" />}
+                  ) : <div className="w-4 h-4 rounded-full bg-gray-400/20 animate-pulse" />}
                 </div>
               </div>
-              <div className="flex-1 flex items-center justify-between px-8 py-2 ml-4 bg-gray-100/50 dark:bg-white/[0.03] border border-gray-100 dark:border-white/5 rounded-2xl relative overflow-hidden">
+              <div className="flex-1 flex items-center justify-between px-4 md:px-8 py-4 md:py-2 mt-2 md:mt-0 md:ml-4 bg-gray-100/50 dark:bg-white/[0.03] border border-gray-100 dark:border-white/5 rounded-2xl relative overflow-hidden min-h-[70px] md:min-h-0">
                 <div className="flex flex-col relative z-10">
-                  <div className="text-gray-400 dark:text-white/30 text-[13px] font-black tracking-[0.2em] uppercase">
+                  <div className="text-gray-400 dark:text-white/30 text-[10px] md:text-[13px] font-black tracking-[0.2em] uppercase">
                     {currentTime.toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'short' })}
                   </div>
                   <div className="flex items-center gap-2 mt-1">
-                    {/* 푸른 불 아이콘 (LED Sync Indicator) */}
-                    <div className={`w-2.5 h-2.5 rounded-full shadow-[0_0_10px_rgba(59,130,246,0.8)] transition-all ${isSyncing ? 'bg-blue-400 animate-pulse' : 'bg-blue-600/40'}`}></div>
-                    <div className={`text-[10px] font-black tracking-[0.3em] uppercase transition-colors duration-500 ${isSyncing ? 'text-blue-500' : 'text-emerald-500/50'}`}>
-                      {isSyncing ? 'Synchronizing Intelligence...' : 'Global Neural Link Active'}
+                    <div className={`w-2 h-2 md:w-2.5 md:h-2.5 rounded-full shadow-[0_0_10px_rgba(59,130,246,0.8)] transition-all ${isSyncing ? 'bg-blue-400 animate-pulse' : 'bg-blue-600/40'}`}></div>
+                    <div className={`text-[9px] md:text-[10px] font-black tracking-[0.2em] md:tracking-[0.3em] uppercase transition-colors duration-500 ${isSyncing ? 'text-blue-500' : 'text-emerald-500/50'}`}>
+                      {isSyncing ? 'SYNCING...' : 'NEURAL LINK ACTIVE'}
                     </div>
                   </div>
                 </div>
-                <div className="flex items-center gap-6">
+                <div className="flex items-center gap-4 md:gap-6">
                   <button 
                     onClick={refreshAll} 
-                    className={`p-3 rounded-xl transition-all ${isSyncing ? 'text-blue-500 bg-blue-500/5' : 'text-gray-400 dark:text-white/10 hover:text-blue-500 hover:bg-white/10'}`}
+                    className={`p-2 md:p-3 rounded-xl transition-all ${isSyncing ? 'text-blue-500 bg-blue-500/5' : 'text-gray-400 dark:text-white/10 hover:text-blue-500 hover:bg-white/10'}`}
                   >
-                    <RefreshCw size={24} className={isSyncing ? 'animate-spin' : ''} />
+                    <RefreshCw size={20} className={`md:scale-125 ${isSyncing ? 'animate-spin' : ''}`} />
                   </button>
-                  <div className="text-gray-900 dark:text-white text-5xl font-black tracking-tighter leading-none tabular-nums relative z-10">
+                  <div className="text-gray-900 dark:text-white text-3xl md:text-5xl font-black tracking-tighter leading-none tabular-nums relative z-10">
                     {currentTime.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })}
                   </div>
                 </div>
