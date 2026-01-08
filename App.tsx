@@ -91,7 +91,7 @@ const App: React.FC = () => {
 
   const toggleTheme = () => setTheme(prev => prev === 'dark' ? 'light' : 'dark');
 
-  // Cloud Sync (Save)
+  // GAS 최적화: POST - 대표님의 Code.gs 구조에 맞춰 데이터를 순수하게 전송
   const saveTasksToCloud = useCallback(async (currentTasks: Task[]) => {
     if (!storageUrl || !unlocked) return;
     lastUserActionTimestamp.current = Date.now();
@@ -100,7 +100,7 @@ const App: React.FC = () => {
       await fetch(storageUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: 'saveTasks', tasks: currentTasks })
+        body: JSON.stringify(currentTasks) // 순수하게 배열만 전송
       });
       localStorage.setItem('ceo_tasks', JSON.stringify(currentTasks));
       tasksRef.current = currentTasks;
@@ -111,15 +111,16 @@ const App: React.FC = () => {
     }
   }, [storageUrl, unlocked]);
 
-  // Cloud Sync (Pull)
+  // GAS 최적화: GET - 대표님의 Code.gs가 반환하는 PropertiesService 데이터를 그대로 파싱
   const fetchTasksFromCloud = useCallback(async () => {
     if (!storageUrl || !unlocked) return;
     
-    // Prevent overwriting local changes that were just made
+    // 사용자가 입력 중일 때는 덮어쓰지 않음
     if (Date.now() - lastUserActionTimestamp.current < 5000) return;
 
     try {
-      const res = await fetch(`${storageUrl}?action=getTasks&t=${Date.now()}`);
+      setIsSyncing(true);
+      const res = await fetch(`${storageUrl}?t=${Date.now()}`);
       const data = await res.json();
       
       if (data && Array.isArray(data)) {
@@ -130,7 +131,9 @@ const App: React.FC = () => {
         }
       }
     } catch (e) {
-      console.warn("Tasks sync failed");
+      console.warn("Task cloud pull interrupted");
+    } finally {
+      setTimeout(() => setIsSyncing(false), 500);
     }
   }, [storageUrl, unlocked]);
 
@@ -217,16 +220,18 @@ const App: React.FC = () => {
     setTimeout(() => setIsSyncing(false), 500);
   }, [fetchMails, fetchNews, fetchIntelligence, fetchTasksFromCloud]);
 
-  // Sync Cycle: 1 Minute (60000ms)
+  // 동기화 주기: 1분 (60,000ms)
   useEffect(() => {
     if (unlocked) {
       refreshAll();
       const syncInterval = setInterval(refreshAll, 60000); 
+      
       const handleVisibilityChange = () => {
         if (document.visibilityState === 'visible') {
           refreshAll();
         }
       };
+      
       document.addEventListener('visibilitychange', handleVisibilityChange);
       window.addEventListener('focus', handleVisibilityChange);
       return () => {
@@ -451,15 +456,20 @@ const App: React.FC = () => {
                     {currentTime.toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'short' })}
                   </div>
                   <div className="flex items-center gap-2 mt-1">
-                    {/* 푸른 불 아이콘 (LED Indicator) */}
-                    <div className={`w-2 h-2 rounded-full shadow-[0_0_8px_rgba(59,130,246,0.8)] ${isSyncing ? 'bg-blue-400 animate-pulse' : 'bg-blue-600'}`}></div>
-                    <div className={`text-[10px] font-bold tracking-[0.25em] uppercase transition-colors duration-500 ${isSyncing ? 'text-blue-500' : 'text-emerald-500 opacity-60'}`}>
-                      {isSyncing ? 'Syncing...' : 'Neural Link Active'}
+                    {/* 푸른 불 아이콘 (LED Sync Indicator) */}
+                    <div className={`w-2.5 h-2.5 rounded-full shadow-[0_0_10px_rgba(59,130,246,0.8)] transition-all ${isSyncing ? 'bg-blue-400 animate-pulse' : 'bg-blue-600/40'}`}></div>
+                    <div className={`text-[10px] font-black tracking-[0.3em] uppercase transition-colors duration-500 ${isSyncing ? 'text-blue-500' : 'text-emerald-500/50'}`}>
+                      {isSyncing ? 'Synchronizing Intelligence...' : 'Global Neural Link Active'}
                     </div>
                   </div>
                 </div>
                 <div className="flex items-center gap-6">
-                  <button onClick={refreshAll} className="p-2 text-gray-400 hover:text-blue-500 transition-all"><RefreshCw size={24} className={isSyncing ? 'animate-spin' : ''} /></button>
+                  <button 
+                    onClick={refreshAll} 
+                    className={`p-3 rounded-xl transition-all ${isSyncing ? 'text-blue-500 bg-blue-500/5' : 'text-gray-400 dark:text-white/10 hover:text-blue-500 hover:bg-white/10'}`}
+                  >
+                    <RefreshCw size={24} className={isSyncing ? 'animate-spin' : ''} />
+                  </button>
                   <div className="text-gray-900 dark:text-white text-5xl font-black tracking-tighter leading-none tabular-nums relative z-10">
                     {currentTime.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })}
                   </div>
