@@ -25,13 +25,13 @@ const TaskCard: React.FC<TaskCardProps> = ({ title, type, tasks, onAddTask, onTo
   };
 
   return (
-    <div className={`glass-panel p-10 flex flex-col ${className}`}>
-      <div className="flex items-center gap-5 mb-10">
+    <div className={`glass-panel p-8 md:p-10 flex flex-col h-[480px] md:h-[520px] ${className}`}>
+      <div className="flex items-center gap-5 mb-10 shrink-0">
         <Hash size={16} className="text-blue-600/30 dark:text-blue-500/30" />
         <h3 className="text-[13px] font-black tracking-[0.6em] text-gray-900/40 dark:text-white/30 uppercase">{title}</h3>
       </div>
 
-      <div className="flex-1 space-y-7 mb-10 overflow-y-auto pr-3 custom-scrollbar">
+      <div className="flex-1 space-y-7 mb-6 overflow-y-auto pr-3 custom-scrollbar pb-12">
         {tasks.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center opacity-5">
             <Check size={48} strokeWidth={1} className="mb-5 text-gray-900 dark:text-white" />
@@ -52,9 +52,11 @@ const TaskCard: React.FC<TaskCardProps> = ({ title, type, tasks, onAddTask, onTo
             </div>
           ))
         )}
+        {/* 하단 짤림 방지 스페이서 */}
+        <div className="h-4 shrink-0"></div>
       </div>
 
-      <form onSubmit={handleSubmit} className="relative mt-auto">
+      <form onSubmit={handleSubmit} className="relative mt-auto shrink-0">
         <input 
           type="text" 
           value={inputValue}
