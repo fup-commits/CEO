@@ -1,5 +1,5 @@
 {
-  "name": "Luxury CEO Dashboard",
+  "name": "CEO Dashboard",
   "description": "A sophisticated, high-end personal dashboard for executives featuring live news, task management, and communication monitoring with a serene rain-themed aesthetic.",
   "requestFramePermissions": [
     "geolocation"

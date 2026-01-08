@@ -28,6 +28,16 @@ export interface NewsItem {
   source: string;
 }
 
+export interface CalendarEvent {
+  id: string;
+  title: string;
+  start: string; // ISO string or date string
+  end?: string;
+  location?: string;
+  description?: string;
+  color?: string;
+}
+
 export interface DashboardState {
   unlocked: boolean;
   tasks: Task[];

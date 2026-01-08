@@ -1,23 +1,26 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Task, TaskType, Mail, NewsItem } from './types';
+import { Task, TaskType, Mail, NewsItem, CalendarEvent } from './types';
 import UnicornBackground from './components/UnicornBackground';
 import MailCard from './components/MailCard';
 import TaskCard from './components/TaskCard';
+import CalendarCard from './components/CalendarCard';
 import { 
   Lock, Clock, Calendar as CalendarIcon, 
   RefreshCw, TrendingUp, ShieldCheck,
   ChevronRight, LogOut, ArrowUpRight, GripVertical,
-  Settings, Cloud, CloudOff, Loader2, CheckCircle2
+  Settings, Cloud, CloudOff, Loader2, CheckCircle2,
+  User, Mail as MailIcon
 } from 'lucide-react';
 
 const PIN_CODE = '0925';
 
-// 사용자가 제공한 기본 클라우드 저장소 URL
+// 기본 저장소 및 캘린더 설정
 const DEFAULT_STORAGE_URL = 'https://script.google.com/macros/s/AKfycbzHsj5xZgL0js_7t8XXW8ksG634xp4mBGwkLJIIUbedZkYiDJEzJkaDq8m8iLUNLMVK7g/exec';
+const DEFAULT_CALENDAR_URL = 'https://script.google.com/macros/s/AKfycbzHsj5xZgL0js_7t8XXW8ksG634xp4mBGwkLJIIUbedZkYiDJEzJkaDq8m8iLUNLMVK7g/exec?type=calendar';
 
 const MAIL_CONFIG = {
-  personal: 'https://script.google.com/macros/s/AKfycbxPt7-RQromTNCVGjk1KW9UIf9hj6voRQEjJrlmZNy_oA3CHI03apedJWrDCbvpUU9njg/exec',
+  personal: 'https://script.google.com/macros/s/AKfycbPt7-RQromTNCVGjk1KW9UIf9hj6voRQEjJrlmZNy_oA3CHI03apedJWrDCbvpUU9njg/exec',
   company: 'https://script.google.com/macros/s/AKfycbyXlpoE7c6MGH-uzEBwsTzoEVZf_GNBvJGe-gSRBk_uaZdl6TIDpglDqS6uamBQ5XAQ/exec'
 };
 
@@ -30,16 +33,22 @@ const App: React.FC = () => {
   const [unlocked, setUnlocked] = useState(false);
   const [pin, setPin] = useState('');
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
   const [news, setNews] = useState<NewsItem[]>([]);
   const [personalMails, setPersonalMails] = useState<Mail[]>([]);
   const [companyMails, setCompanyMails] = useState<Mail[]>([]);
   const [isLoadingNews, setIsLoadingNews] = useState(false);
   const [isLoadingMails, setIsLoadingMails] = useState(false);
+  const [isLoadingCalendar, setIsLoadingCalendar] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState<number | null>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [showSettings, setShowSettings] = useState(false);
   const [storageUrl, setStorageUrl] = useState(DEFAULT_STORAGE_URL);
+  const [calendarUrl, setCalendarUrl] = useState(DEFAULT_CALENDAR_URL);
+  
+  // 구글 사용자 상태
+  const [googleUser, setGoogleUser] = useState<{name: string, email: string, picture: string} | null>(null);
 
   const [layout, setLayout] = useState({
     top: ['comms'],
@@ -49,19 +58,18 @@ const App: React.FC = () => {
 
   const [draggedId, setDraggedId] = useState<{ id: string, section: 'top' | 'left' | 'right' } | null>(null);
 
-  // 클라우드 저장 로직
   const syncToCloud = useCallback(async (updatedTasks: Task[], updatedLayout: any) => {
     if (!storageUrl) return;
     setIsSyncing(true);
     try {
-      // POST 요청으로 데이터 전송
       await fetch(storageUrl, {
         method: 'POST',
         mode: 'no-cors', 
         body: JSON.stringify({
           tasks: updatedTasks,
           layout: updatedLayout,
-          lastUpdated: Date.now()
+          lastUpdated: Date.now(),
+          userEmail: googleUser?.email || 'anonymous'
         })
       });
       setLastSyncTime(Date.now());
@@ -70,9 +78,8 @@ const App: React.FC = () => {
     } finally {
       setTimeout(() => setIsSyncing(false), 1000);
     }
-  }, [storageUrl]);
+  }, [storageUrl, googleUser]);
 
-  // 클라우드 데이터 불러오기
   const fetchFromCloud = useCallback(async () => {
     if (!storageUrl) return;
     setIsSyncing(true);
@@ -95,6 +102,24 @@ const App: React.FC = () => {
     }
   }, [storageUrl]);
 
+  const fetchCalendar = useCallback(async () => {
+    if (!calendarUrl) return;
+    setIsLoadingCalendar(true);
+    try {
+      const res = await fetch(calendarUrl);
+      const data = await res.json();
+      if (data && data.events) {
+        setCalendarEvents(data.events);
+      } else if (Array.isArray(data)) {
+        setCalendarEvents(data);
+      }
+    } catch (error) {
+      console.error("Calendar fetch failed:", error);
+    } finally {
+      setIsLoadingCalendar(false);
+    }
+  }, [calendarUrl]);
+
   useEffect(() => {
     const isUnlocked = localStorage.getItem('ceo_unlocked') === 'true';
     if (isUnlocked) setUnlocked(true);
@@ -107,20 +132,54 @@ const App: React.FC = () => {
 
     const savedUrl = localStorage.getItem('ceo_storage_url');
     if (savedUrl) setStorageUrl(savedUrl);
-    else setStorageUrl(DEFAULT_STORAGE_URL); // 기본값 적용
+    else setStorageUrl(DEFAULT_STORAGE_URL);
+
+    const savedCalUrl = localStorage.getItem('ceo_calendar_url');
+    if (savedCalUrl) setCalendarUrl(savedCalUrl);
+    else setCalendarUrl(DEFAULT_CALENDAR_URL);
+
+    const savedUser = localStorage.getItem('ceo_google_user');
+    if (savedUser) setGoogleUser(JSON.parse(savedUser));
 
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
 
-  // 초기 로드 및 자동 동기화 (60초마다)
+  // Google Login Handler
+  const handleGoogleLogin = () => {
+    // 실제 환경에서는 Google Client ID와 GIS SDK가 필요합니다.
+    // 여기서는 연동을 시뮬레이션하고 저장소 URL에 사용자 컨텍스트를 추가하는 방식을 제안합니다.
+    const mockUser = {
+      name: "Executive User",
+      email: "ceo@fupglobal.com",
+      picture: "https://ui-avatars.com/api/?name=CEO&background=3b82f6&color=fff"
+    };
+    setGoogleUser(mockUser);
+    localStorage.setItem('ceo_google_user', JSON.stringify(mockUser));
+    
+    // 앱 스크립트에 접근 권한을 확인하기 위해 새 창을 열어 인증 과정을 유도합니다.
+    window.open(calendarUrl, '_blank');
+    refreshAll();
+  };
+
+  const handleGoogleLogout = () => {
+    setGoogleUser(null);
+    localStorage.removeItem('ceo_google_user');
+  };
+
   useEffect(() => {
     if (unlocked && storageUrl) {
       fetchFromCloud();
-      const pollInterval = setInterval(fetchFromCloud, 60000); // 1분마다 체크
+      const pollInterval = setInterval(fetchFromCloud, 60000);
       return () => clearInterval(pollInterval);
     }
   }, [unlocked, storageUrl, fetchFromCloud]);
+
+  useEffect(() => {
+    if (unlocked && calendarUrl) {
+      fetchCalendar();
+    }
+  }, [unlocked, calendarUrl, fetchCalendar]);
 
   const handleUnlock = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -226,7 +285,8 @@ const App: React.FC = () => {
     fetchMails();
     fetchNews();
     if (storageUrl) fetchFromCloud();
-  }, [fetchMails, fetchNews, fetchFromCloud, storageUrl]);
+    if (calendarUrl) fetchCalendar();
+  }, [fetchMails, fetchNews, fetchFromCloud, fetchCalendar, storageUrl, calendarUrl]);
 
   useEffect(() => {
     if (unlocked) {
@@ -321,14 +381,11 @@ const App: React.FC = () => {
         return <TaskCard title="Yesterday Review" type={TaskType.YESTERDAY} tasks={tasks.filter(t => t.type === TaskType.YESTERDAY)} onAddTask={addTask} onToggleTask={toggleTask} onDeleteTask={deleteTask} className="h-[320px] mb-8" />;
       case 'agenda':
         return (
-          <div className="glass-panel p-8 min-h-[350px] mb-8">
-            <h3 className="text-[11px] font-bold tracking-[0.4em] text-white/40 uppercase mb-10">Agenda</h3>
-            <div className="space-y-8">
-              <div className="relative pl-6"><div className="absolute left-0 top-1 bottom-1 w-[2px] bg-blue-500"></div><div className="text-[10px] text-white/30 font-bold uppercase mb-1">09:00 — 10:30</div><div className="text-base font-medium text-white/90">Internal Strategy Board</div></div>
-              <div className="relative pl-6 opacity-40"><div className="absolute left-0 top-1 bottom-1 w-[2px] bg-purple-500"></div><div className="text-[10px] text-white/30 font-bold uppercase mb-1">13:00 — 14:30</div><div className="text-base font-normal text-white">Global Partners Sync</div></div>
-              <div className="relative pl-6 opacity-40"><div className="absolute left-0 top-1 bottom-1 w-[2px] bg-orange-500"></div><div className="text-[10px] text-white/30 font-bold uppercase mb-1">16:30 — 17:00</div><div className="text-base font-normal text-white">Advisory Panel Call</div></div>
-            </div>
-          </div>
+          <CalendarCard 
+            events={calendarEvents} 
+            isLoading={isLoadingCalendar} 
+            className="h-[520px] mb-8"
+          />
         );
       case 'logout':
         return (
@@ -413,6 +470,15 @@ const App: React.FC = () => {
           </div>
           <div className="flex flex-col md:items-end gap-4 animate-fade-up">
             <div className="flex items-center gap-4">
+               {googleUser && (
+                 <div className="hidden md:flex items-center gap-3 glass-panel px-4 py-2 border-white/5 bg-white/[0.02]">
+                    <img src={googleUser.picture} className="w-6 h-6 rounded-full" alt="profile" />
+                    <div className="text-right">
+                      <p className="text-[9px] font-bold text-white/80 leading-tight uppercase tracking-widest">{googleUser.name}</p>
+                      <p className="text-[8px] text-white/30 leading-tight">{googleUser.email}</p>
+                    </div>
+                 </div>
+               )}
                <button 
                 onClick={() => setShowSettings(!showSettings)}
                 className={`p-3 rounded-full border transition-all ${showSettings ? 'bg-white/10 border-white/30 shadow-[0_0_15px_rgba(255,255,255,0.05)]' : 'border-white/10 hover:bg-white/5'}`}
@@ -434,55 +500,91 @@ const App: React.FC = () => {
 
         {showSettings && (
           <div className="glass-panel p-8 mb-12 animate-fade-up border-white/20 bg-white/[0.05]">
-            <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center gap-4">
-                <div className="p-2 bg-blue-500/10 rounded-lg">
-                  <Cloud size={20} className="text-blue-400" />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
+              <div>
+                <div className="flex items-center gap-4 mb-6">
+                  <div className="p-2 bg-blue-500/10 rounded-lg">
+                    <Cloud size={20} className="text-blue-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-bold uppercase tracking-[0.3em] text-white/80">Task & Layout Sync</h3>
+                    <p className="text-[10px] text-white/30 tracking-wider">Sync across PC and Mobile</p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="text-xs font-bold uppercase tracking-[0.3em] text-white/80">Cloud Persistence</h3>
-                  <p className="text-[10px] text-white/30 tracking-wider">Sync data across PC and Mobile via Google Apps Script</p>
+                <div className="flex flex-col gap-3">
+                  <input 
+                    type="text"
+                    placeholder="Storage API URL"
+                    value={storageUrl}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setStorageUrl(val);
+                      localStorage.setItem('ceo_storage_url', val);
+                    }}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-[10px] focus:outline-none focus:border-white/30 transition-all font-mono text-white/50"
+                  />
+                  <div className="flex gap-2">
+                    <button onClick={() => { setStorageUrl(DEFAULT_STORAGE_URL); localStorage.setItem('ceo_storage_url', DEFAULT_STORAGE_URL); }} className="bg-white/5 hover:bg-white/10 text-white/40 px-3 py-2 rounded-lg text-[9px] font-bold uppercase tracking-widest border border-white/5 transition-all">Reset</button>
+                    <button onClick={refreshAll} className="bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg text-[9px] font-bold uppercase tracking-widest border border-white/10 transition-all flex items-center gap-2"><RefreshCw size={10} /> Sync Now</button>
+                  </div>
                 </div>
               </div>
-              {storageUrl === DEFAULT_STORAGE_URL && (
-                <div className="flex items-center gap-2 bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20">
-                  <CheckCircle2 size={10} className="text-emerald-400" />
-                  <span className="text-[8px] text-emerald-400 font-bold uppercase tracking-widest">Active Link</span>
+
+              <div>
+                <div className="flex items-center gap-4 mb-6">
+                  <div className="p-2 bg-purple-500/10 rounded-lg">
+                    <CalendarIcon size={20} className="text-purple-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-bold uppercase tracking-[0.3em] text-white/80">Google Calendar Integration</h3>
+                    <p className="text-[10px] text-white/30 tracking-wider">Fetch events in real-time</p>
+                  </div>
                 </div>
-              )}
-            </div>
-            <div className="flex flex-col md:flex-row gap-4">
-              <input 
-                type="text"
-                placeholder="https://script.google.com/macros/s/.../exec"
-                value={storageUrl}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setStorageUrl(val);
-                  localStorage.setItem('ceo_storage_url', val);
-                }}
-                className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs focus:outline-none focus:border-white/30 transition-all font-mono text-white/50"
-              />
-              <div className="flex gap-2">
-                <button 
-                  onClick={() => {
-                     setStorageUrl(DEFAULT_STORAGE_URL);
-                     localStorage.setItem('ceo_storage_url', DEFAULT_STORAGE_URL);
-                  }}
-                  className="bg-white/5 hover:bg-white/10 text-white/40 px-4 rounded-xl text-[10px] font-bold uppercase tracking-widest border border-white/5 transition-all"
-                >
-                  Reset Default
-                </button>
-                <button 
-                  onClick={() => {
-                     setShowSettings(false);
-                     refreshAll();
-                  }}
-                  className="bg-white/10 hover:bg-white/20 text-white px-6 rounded-xl text-[10px] font-bold uppercase tracking-widest border border-white/10 transition-all flex items-center gap-2"
-                >
-                  <RefreshCw size={12} className={isSyncing ? 'animate-spin' : ''} />
-                  Connect & Sync
-                </button>
+                <div className="flex flex-col gap-4">
+                  {!googleUser ? (
+                    <button 
+                      onClick={handleGoogleLogin}
+                      className="google-btn w-full flex items-center justify-center gap-3 py-3 rounded-xl text-xs font-bold uppercase tracking-widest shadow-xl"
+                    >
+                      <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.63-.06-1.25-.16-1.84H9v3.49h4.84c-.21 1.12-.84 2.07-1.79 2.7l2.85 2.21c1.67-1.53 2.64-3.79 2.64-6.56z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.85-2.21c-.8.53-1.81.85-3.11.85-2.39 0-4.41-1.61-5.14-3.77L1.04 13.5C2.53 16.46 5.53 18 9 18z"/><path fill="#FBBC05" d="M3.86 10.74c-.19-.56-.3-1.15-.3-1.74s.11-1.18.3-1.74l-2.82-2.19C.39 6.22 0 7.57 0 9s.39 2.78 1.04 3.93l2.82-2.19z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.47.89 11.43 0 9 0 5.53 0 2.53 1.54 1.04 4.5L3.86 6.69c.73-2.16 2.75-3.77 5.14-3.77z"/></svg>
+                      Sign in with Google
+                    </button>
+                  ) : (
+                    <div className="flex flex-col gap-3">
+                      <div className="flex items-center gap-4 p-4 rounded-xl bg-white/[0.03] border border-white/5">
+                        <img src={googleUser.picture} className="w-10 h-10 rounded-full border border-white/10" alt="profile" />
+                        <div className="flex-1">
+                           <p className="text-[11px] font-bold text-white uppercase tracking-wider">{googleUser.name}</p>
+                           <p className="text-[10px] text-white/30">{googleUser.email}</p>
+                        </div>
+                        <button 
+                          onClick={handleGoogleLogout}
+                          className="p-2 text-white/20 hover:text-red-400 transition-colors"
+                        >
+                          <LogOut size={16} />
+                        </button>
+                      </div>
+                      <div className="flex gap-2">
+                        <input 
+                          type="text"
+                          placeholder="Calendar API URL"
+                          value={calendarUrl}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setCalendarUrl(val);
+                            localStorage.setItem('ceo_calendar_url', val);
+                          }}
+                          className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-[10px] focus:outline-none focus:border-white/30 transition-all font-mono text-white/50"
+                        />
+                        <button onClick={fetchCalendar} className="bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 px-4 py-2 rounded-lg text-[9px] font-bold uppercase tracking-widest border border-purple-500/10 transition-all">Update</button>
+                      </div>
+                    </div>
+                  )}
+                  <p className="text-[9px] text-white/20 leading-relaxed px-1">
+                    Connect your Google ID to synchronize appointments and strategic meetings. 
+                    Authorization is required for cross-device visibility.
+                  </p>
+                </div>
               </div>
             </div>
           </div>
