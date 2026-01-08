@@ -10,10 +10,11 @@ interface TaskCardProps {
   onAddTask: (text: string, type: TaskType) => void;
   onToggleTask: (id: string) => void;
   onDeleteTask: (id: string) => void;
+  onRefresh?: () => void;
   className?: string;
 }
 
-const TaskCard: React.FC<TaskCardProps> = ({ title, type, tasks, onAddTask, onToggleTask, onDeleteTask, className = "" }) => {
+const TaskCard: React.FC<TaskCardProps> = ({ title, type, tasks, onAddTask, onToggleTask, onDeleteTask, onRefresh, className = "" }) => {
   const [inputValue, setInputValue] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -32,10 +33,11 @@ const TaskCard: React.FC<TaskCardProps> = ({ title, type, tasks, onAddTask, onTo
           <h3 className="text-[13px] font-black tracking-[0.6em] text-gray-900/40 dark:text-white/30 uppercase">{title}</h3>
         </div>
         <button 
-          onClick={() => window.location.reload()} 
-          className="text-gray-300 dark:text-white/10 hover:text-blue-500 transition-all"
+          onClick={() => onRefresh ? onRefresh() : window.location.reload()} 
+          className="text-gray-400 dark:text-white/20 hover:text-blue-500 transition-all p-1"
+          title="Manual Sync"
         >
-          <RefreshCw size={14} />
+          <RefreshCw size={16} />
         </button>
       </div>
 

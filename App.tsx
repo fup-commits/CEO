@@ -91,7 +91,7 @@ const App: React.FC = () => {
 
   const toggleTheme = () => setTheme(prev => prev === 'dark' ? 'light' : 'dark');
 
-  // Cloud Save 로직 (POST)
+  // Cloud Sync (Save)
   const saveTasksToCloud = useCallback(async (currentTasks: Task[]) => {
     if (!storageUrl || !unlocked) return;
     lastUserActionTimestamp.current = Date.now();
@@ -111,29 +111,26 @@ const App: React.FC = () => {
     }
   }, [storageUrl, unlocked]);
 
-  // Cloud Pull 로직 (GET)
+  // Cloud Sync (Pull)
   const fetchTasksFromCloud = useCallback(async () => {
     if (!storageUrl || !unlocked) return;
     
-    // 사용자가 방금 작업을 수행했다면 클라우드 데이터를 무시 (덮어쓰기 방지)
-    if (Date.now() - lastUserActionTimestamp.current < 8000) return;
+    // Prevent overwriting local changes that were just made
+    if (Date.now() - lastUserActionTimestamp.current < 5000) return;
 
     try {
       const res = await fetch(`${storageUrl}?action=getTasks&t=${Date.now()}`);
       const data = await res.json();
       
       if (data && Array.isArray(data)) {
-        const cloudDataStr = JSON.stringify(data);
-        const localDataStr = JSON.stringify(tasksRef.current);
-        
-        if (cloudDataStr !== localDataStr) {
+        if (JSON.stringify(data) !== JSON.stringify(tasksRef.current)) {
           setTasks(data);
           tasksRef.current = data;
-          localStorage.setItem('ceo_tasks', cloudDataStr);
+          localStorage.setItem('ceo_tasks', JSON.stringify(data));
         }
       }
     } catch (e) {
-      console.warn("Cloud pull failed");
+      console.warn("Tasks sync failed");
     }
   }, [storageUrl, unlocked]);
 
@@ -220,7 +217,7 @@ const App: React.FC = () => {
     setTimeout(() => setIsSyncing(false), 500);
   }, [fetchMails, fetchNews, fetchIntelligence, fetchTasksFromCloud]);
 
-  // 동기화 주기: 1분 (60000ms)
+  // Sync Cycle: 1 Minute (60000ms)
   useEffect(() => {
     if (unlocked) {
       refreshAll();
@@ -304,6 +301,7 @@ const App: React.FC = () => {
             onAddTask={addTask} 
             onToggleTask={toggleTask} 
             onDeleteTask={deleteTask} 
+            onRefresh={fetchTasksFromCloud}
           />
         );
       case 'news':
@@ -353,6 +351,7 @@ const App: React.FC = () => {
             onAddTask={addTask} 
             onToggleTask={toggleTask} 
             onDeleteTask={deleteTask} 
+            onRefresh={fetchTasksFromCloud}
           />
         );
       case 'agenda':
@@ -452,7 +451,7 @@ const App: React.FC = () => {
                     {currentTime.toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'short' })}
                   </div>
                   <div className="flex items-center gap-2 mt-1">
-                    {/* 푸른 불 아이콘 (LED) */}
+                    {/* 푸른 불 아이콘 (LED Indicator) */}
                     <div className={`w-2 h-2 rounded-full shadow-[0_0_8px_rgba(59,130,246,0.8)] ${isSyncing ? 'bg-blue-400 animate-pulse' : 'bg-blue-600'}`}></div>
                     <div className={`text-[10px] font-bold tracking-[0.25em] uppercase transition-colors duration-500 ${isSyncing ? 'text-blue-500' : 'text-emerald-500 opacity-60'}`}>
                       {isSyncing ? 'Syncing...' : 'Neural Link Active'}
