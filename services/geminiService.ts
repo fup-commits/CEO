@@ -2,10 +2,13 @@
 import {GoogleGenAI} from "@google/genai";
 import { NewsItem } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Vite define 설정에 의해 빌드 타임에 문자열로 치환됩니다.
+const apiKey = process.env.API_KEY;
+const ai = new GoogleGenAI({ apiKey });
 
 export async function summarizeExecutiveNews(news: NewsItem[]): Promise<string> {
   if (!news || news.length === 0) return "No significant updates found for your companies this morning.";
+  if (!apiKey) return "AI Summary unavailable: API Key not configured.";
 
   const newsContext = news.map(n => `[${n.source}] ${n.title}`).join('\n');
 
