@@ -8,10 +8,13 @@ import {
   Lock, Clock, Calendar as CalendarIcon, 
   RefreshCw, TrendingUp, ShieldCheck,
   ChevronRight, LogOut, ArrowUpRight, GripVertical,
-  Settings, Cloud, CloudOff, Loader2
+  Settings, Cloud, CloudOff, Loader2, CheckCircle2
 } from 'lucide-react';
 
 const PIN_CODE = '0925';
+
+// 사용자가 제공한 기본 클라우드 저장소 URL
+const DEFAULT_STORAGE_URL = 'https://script.google.com/macros/s/AKfycbzHsj5xZgL0js_7t8XXW8ksG634xp4mBGwkLJIIUbedZkYiDJEzJkaDq8m8iLUNLMVK7g/exec';
 
 const MAIL_CONFIG = {
   personal: 'https://script.google.com/macros/s/AKfycbxPt7-RQromTNCVGjk1KW9UIf9hj6voRQEjJrlmZNy_oA3CHI03apedJWrDCbvpUU9njg/exec',
@@ -33,9 +36,10 @@ const App: React.FC = () => {
   const [isLoadingNews, setIsLoadingNews] = useState(false);
   const [isLoadingMails, setIsLoadingMails] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [lastSyncTime, setLastSyncTime] = useState<number | null>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [showSettings, setShowSettings] = useState(false);
-  const [storageUrl, setStorageUrl] = useState('');
+  const [storageUrl, setStorageUrl] = useState(DEFAULT_STORAGE_URL);
 
   const [layout, setLayout] = useState({
     top: ['comms'],
@@ -50,19 +54,21 @@ const App: React.FC = () => {
     if (!storageUrl) return;
     setIsSyncing(true);
     try {
+      // POST 요청으로 데이터 전송
       await fetch(storageUrl, {
         method: 'POST',
-        mode: 'no-cors', // Apps Script 호환성
+        mode: 'no-cors', 
         body: JSON.stringify({
           tasks: updatedTasks,
           layout: updatedLayout,
           lastUpdated: Date.now()
         })
       });
+      setLastSyncTime(Date.now());
     } catch (error) {
       console.error("Sync failed:", error);
     } finally {
-      setIsSyncing(false);
+      setTimeout(() => setIsSyncing(false), 1000);
     }
   }, [storageUrl]);
 
@@ -73,18 +79,19 @@ const App: React.FC = () => {
     try {
       const res = await fetch(storageUrl);
       const data = await res.json();
-      if (data.tasks) {
+      if (data && data.tasks) {
         setTasks(data.tasks);
         localStorage.setItem('ceo_tasks', JSON.stringify(data.tasks));
       }
-      if (data.layout) {
+      if (data && data.layout) {
         setLayout(data.layout);
         localStorage.setItem('ceo_layout', JSON.stringify(data.layout));
       }
+      setLastSyncTime(Date.now());
     } catch (error) {
       console.error("Fetch sync failed:", error);
     } finally {
-      setIsSyncing(false);
+      setTimeout(() => setIsSyncing(false), 1000);
     }
   }, [storageUrl]);
 
@@ -100,14 +107,18 @@ const App: React.FC = () => {
 
     const savedUrl = localStorage.getItem('ceo_storage_url');
     if (savedUrl) setStorageUrl(savedUrl);
+    else setStorageUrl(DEFAULT_STORAGE_URL); // 기본값 적용
 
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
 
+  // 초기 로드 및 자동 동기화 (60초마다)
   useEffect(() => {
     if (unlocked && storageUrl) {
       fetchFromCloud();
+      const pollInterval = setInterval(fetchFromCloud, 60000); // 1분마다 체크
+      return () => clearInterval(pollInterval);
     }
   }, [unlocked, storageUrl, fetchFromCloud]);
 
@@ -376,12 +387,24 @@ const App: React.FC = () => {
             <div className="flex items-center gap-3 mb-4">
               <div className="h-1 w-1 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]"></div>
               <span className="text-[10px] uppercase tracking-[0.4em] text-white/40 font-bold">Strategic Intelligence Unit</span>
-              {isSyncing && (
-                <div className="flex items-center gap-2 text-blue-400 animate-pulse ml-4">
+              
+              <div className={`flex items-center gap-2 transition-all duration-500 ml-4 ${storageUrl ? 'text-blue-400' : 'text-white/10'}`}>
+                {isSyncing ? (
                   <Loader2 size={10} className="animate-spin" />
-                  <span className="text-[8px] uppercase tracking-widest font-bold">Syncing</span>
-                </div>
-              )}
+                ) : storageUrl ? (
+                  <Cloud size={10} />
+                ) : (
+                  <CloudOff size={10} />
+                )}
+                <span className="text-[8px] uppercase tracking-widest font-bold">
+                  {isSyncing ? 'Syncing' : storageUrl ? 'Cloud Connected' : 'Local Only'}
+                </span>
+                {lastSyncTime && !isSyncing && (
+                  <span className="text-[7px] opacity-40 ml-1">
+                    {new Date(lastSyncTime).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                  </span>
+                )}
+              </div>
             </div>
             <h1 className="text-4xl lg:text-6xl font-black tracking-[-0.05em] text-white uppercase leading-none">
               fupglobalpartners<br/>
@@ -392,9 +415,9 @@ const App: React.FC = () => {
             <div className="flex items-center gap-4">
                <button 
                 onClick={() => setShowSettings(!showSettings)}
-                className={`p-3 rounded-full border transition-all ${showSettings ? 'bg-white/10 border-white/30' : 'border-white/10 hover:bg-white/5'}`}
+                className={`p-3 rounded-full border transition-all ${showSettings ? 'bg-white/10 border-white/30 shadow-[0_0_15px_rgba(255,255,255,0.05)]' : 'border-white/10 hover:bg-white/5'}`}
                >
-                 <Settings size={18} className="text-white/40" />
+                 <Settings size={18} className={`${showSettings ? 'text-white' : 'text-white/40'}`} />
                </button>
                <div className="text-right">
                 <div className="flex items-center justify-end gap-3 text-white/30 font-light text-sm tracking-wide">
@@ -411,16 +434,24 @@ const App: React.FC = () => {
 
         {showSettings && (
           <div className="glass-panel p-8 mb-12 animate-fade-up border-white/20 bg-white/[0.05]">
-            <div className="flex items-center gap-4 mb-6">
-              <div className="p-2 bg-blue-500/10 rounded-lg">
-                <Cloud size={20} className="text-blue-400" />
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-4">
+                <div className="p-2 bg-blue-500/10 rounded-lg">
+                  <Cloud size={20} className="text-blue-400" />
+                </div>
+                <div>
+                  <h3 className="text-xs font-bold uppercase tracking-[0.3em] text-white/80">Cloud Persistence</h3>
+                  <p className="text-[10px] text-white/30 tracking-wider">Sync data across PC and Mobile via Google Apps Script</p>
+                </div>
               </div>
-              <div>
-                <h3 className="text-xs font-bold uppercase tracking-[0.3em] text-white/80">Cloud Persistence</h3>
-                <p className="text-[10px] text-white/30 tracking-wider">Sync data across PC and Mobile via Google Apps Script</p>
-              </div>
+              {storageUrl === DEFAULT_STORAGE_URL && (
+                <div className="flex items-center gap-2 bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20">
+                  <CheckCircle2 size={10} className="text-emerald-400" />
+                  <span className="text-[8px] text-emerald-400 font-bold uppercase tracking-widest">Active Link</span>
+                </div>
+              )}
             </div>
-            <div className="flex gap-4">
+            <div className="flex flex-col md:flex-row gap-4">
               <input 
                 type="text"
                 placeholder="https://script.google.com/macros/s/.../exec"
@@ -432,15 +463,27 @@ const App: React.FC = () => {
                 }}
                 className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs focus:outline-none focus:border-white/30 transition-all font-mono text-white/50"
               />
-              <button 
-                onClick={() => {
-                   setShowSettings(false);
-                   refreshAll();
-                }}
-                className="bg-white/10 hover:bg-white/20 text-white px-6 rounded-xl text-[10px] font-bold uppercase tracking-widest border border-white/10 transition-all"
-              >
-                Connect & Sync
-              </button>
+              <div className="flex gap-2">
+                <button 
+                  onClick={() => {
+                     setStorageUrl(DEFAULT_STORAGE_URL);
+                     localStorage.setItem('ceo_storage_url', DEFAULT_STORAGE_URL);
+                  }}
+                  className="bg-white/5 hover:bg-white/10 text-white/40 px-4 rounded-xl text-[10px] font-bold uppercase tracking-widest border border-white/5 transition-all"
+                >
+                  Reset Default
+                </button>
+                <button 
+                  onClick={() => {
+                     setShowSettings(false);
+                     refreshAll();
+                  }}
+                  className="bg-white/10 hover:bg-white/20 text-white px-6 rounded-xl text-[10px] font-bold uppercase tracking-widest border border-white/10 transition-all flex items-center gap-2"
+                >
+                  <RefreshCw size={12} className={isSyncing ? 'animate-spin' : ''} />
+                  Connect & Sync
+                </button>
+              </div>
             </div>
           </div>
         )}
