@@ -64,11 +64,19 @@ const App: React.FC = () => {
     right: ['yesterday', 'agenda', 'logout']
   });
 
+  // State reference for immediate access in callbacks
+  const tasksRef = useRef<Task[]>([]);
+  useEffect(() => { tasksRef.current = tasks; }, [tasks]);
+
   // Load Initial Cache
   useEffect(() => {
     const savedTasks = localStorage.getItem('ceo_tasks');
     if (savedTasks) {
-      try { setTasks(JSON.parse(savedTasks)); } catch (e) { console.error(e); }
+      try { 
+        const parsed = JSON.parse(savedTasks);
+        setTasks(parsed);
+        tasksRef.current = parsed;
+      } catch (e) { console.error(e); }
     }
     const savedTheme = localStorage.getItem('ceo_theme') as 'dark' | 'light';
     if (savedTheme) setTheme(savedTheme);
@@ -92,6 +100,8 @@ const App: React.FC = () => {
   const saveTasksToCloud = useCallback(async (currentTasks: Task[]) => {
     if (!storageUrl || !unlocked) return;
     try {
+      setIsSyncing(true);
+      // Using standard POST - for Google Apps Script, no-cors is sometimes needed if preflight fails
       await fetch(storageUrl, {
         method: 'POST',
         mode: 'no-cors',
@@ -101,22 +111,27 @@ const App: React.FC = () => {
       localStorage.setItem('ceo_tasks', JSON.stringify(currentTasks));
     } catch (e) {
       console.error("Cloud save failed", e);
+    } finally {
+      setTimeout(() => setIsSyncing(false), 1000);
     }
   }, [storageUrl, unlocked]);
 
   const fetchTasksFromCloud = useCallback(async () => {
-    if (!storageUrl) return;
+    if (!storageUrl || !unlocked) return;
     try {
-      const res = await fetch(`${storageUrl}?action=getTasks`);
+      const res = await fetch(`${storageUrl}?action=getTasks&t=${Date.now()}`);
       const data = await res.json();
       if (data && Array.isArray(data)) {
-        setTasks(data);
-        localStorage.setItem('ceo_tasks', JSON.stringify(data));
+        // Only update if cloud data is different to avoid unnecessary re-renders
+        if (JSON.stringify(data) !== JSON.stringify(tasksRef.current)) {
+          setTasks(data);
+          localStorage.setItem('ceo_tasks', JSON.stringify(data));
+        }
       }
     } catch (e) {
       console.warn("Cloud pull failed, using local cache.");
     }
-  }, [storageUrl]);
+  }, [storageUrl, unlocked]);
 
   const fetchIntelligence = useCallback(async () => {
     try {
@@ -148,7 +163,7 @@ const App: React.FC = () => {
     setIsLoadingMails(true);
     try {
       const fetchSet = async (url: string) => {
-        const res = await fetch(url);
+        const res = await fetch(`${url}${url.includes('?') ? '&' : '?'}cache=${Date.now()}`);
         const data = await res.json();
         return (data || []).slice(0, 10).map((m: any, idx: number) => ({
           id: `mail-${idx}-${Date.now()}`,
@@ -173,7 +188,7 @@ const App: React.FC = () => {
     try {
       const allNews: NewsItem[] = [];
       for (const source of NEWS_SOURCES) {
-        const url = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(`https://news.google.com/rss/search?q=${source.query}&hl=ko&gl=KR&ceid=KR:ko`)}`;
+        const url = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(`https://news.google.com/rss/search?q=${source.query}&hl=ko&gl=KR&ceid=KR:ko`)}&t=${Date.now()}`;
         const res = await fetch(url);
         const data = await res.json();
         if (data.items) {
@@ -192,7 +207,7 @@ const App: React.FC = () => {
 
   const refreshAll = useCallback(async () => {
     setIsSyncing(true);
-    await Promise.all([
+    await Promise.allSettled([
       fetchMails(),
       fetchNews(),
       fetchIntelligence(),
@@ -201,12 +216,28 @@ const App: React.FC = () => {
     setIsSyncing(false);
   }, [fetchMails, fetchNews, fetchIntelligence, fetchTasksFromCloud]);
 
-  // Initial and Periodic Sync
+  // Periodic and Visibility Sync
   useEffect(() => {
     if (unlocked) {
       refreshAll();
-      const syncInterval = setInterval(refreshAll, 60000); // 60 seconds auto-sync
-      return () => clearInterval(syncInterval);
+      
+      const syncInterval = setInterval(refreshAll, 20000); // Higher frequency (20s) for better device linkage
+      
+      const handleVisibilityChange = () => {
+        if (document.visibilityState === 'visible') {
+          console.log("App focused, triggering neural sync...");
+          refreshAll();
+        }
+      };
+      
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+      window.addEventListener('focus', handleVisibilityChange);
+      
+      return () => {
+        clearInterval(syncInterval);
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+        window.removeEventListener('focus', handleVisibilityChange);
+      };
     }
   }, [unlocked, refreshAll]);
 
@@ -421,7 +452,7 @@ const App: React.FC = () => {
                     {currentTime.toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'short' })}
                   </div>
                   <div className={`text-[10px] font-bold tracking-[0.25em] uppercase mt-1 transition-colors duration-500 ${isSyncing ? 'text-blue-500 animate-pulse' : 'text-emerald-500 opacity-60'}`}>
-                    {isSyncing ? 'Synchronizing Neural Grid...' : 'Strategic Grid Balanced'}
+                    {isSyncing ? 'Neural Bridge Active...' : 'Strategic Grid Balanced'}
                   </div>
                 </div>
                 <div className="text-gray-900 dark:text-white text-5xl font-black tracking-tighter leading-none tabular-nums relative z-10">
@@ -448,11 +479,11 @@ const App: React.FC = () => {
                   }} 
                   className="w-full bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl px-5 py-4 text-[10px] font-mono text-gray-600 dark:text-white/40 focus:outline-none" 
                 />
-                <button onClick={refreshAll} className="px-6 py-3 rounded-xl bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-transform active:scale-95"><RefreshCw size={14} /> Manual Refresh</button>
+                <button onClick={refreshAll} className="px-6 py-3 rounded-xl bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-transform active:scale-95"><RefreshCw size={14} /> Refresh Neural Grid</button>
               </div>
               <div className="space-y-5">
                 <h3 className="text-[11px] font-black uppercase tracking-[0.5em] text-purple-600 dark:text-purple-500">Security</h3>
-                <button onClick={() => { localStorage.removeItem('ceo_unlocked'); setUnlocked(false); }} className="w-full py-4 rounded-xl bg-red-500/10 text-red-500 border border-red-500/20 font-black uppercase tracking-[0.3em] text-[10px] flex items-center justify-center gap-3"><LogOut size={16} /> Wipe Local Access</button>
+                <button onClick={() => { localStorage.removeItem('ceo_unlocked'); setUnlocked(false); }} className="w-full py-4 rounded-xl bg-red-500/10 text-red-500 border border-red-500/20 font-black uppercase tracking-[0.3em] text-[10px] flex items-center justify-center gap-3 transition-colors hover:bg-red-500 hover:text-white"><LogOut size={16} /> Disconnect Device</button>
               </div>
             </div>
           </div>
