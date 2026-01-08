@@ -48,7 +48,7 @@ const App: React.FC = () => {
   const [isLoadingCalendar, setIsLoadingCalendar] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [showSettings, setShowSettings] = useState(false);
-  const [storageUrl, setStorageUrl] = useState(DEFAULT_STORAGE_URL);
+  const [storageUrl, setStorageUrl] = useState(() => localStorage.getItem('ceo_storage_url') || DEFAULT_STORAGE_URL);
   
   const [weather, setWeather] = useState<{ temp: number; humidity: number; icon: string } | null>(null);
   const [airQuality, setAirQuality] = useState<{ value: number; status: string; face: 'good' | 'normal' | 'bad' | 'danger' } | null>(null);
@@ -63,8 +63,24 @@ const App: React.FC = () => {
     right: ['yesterday', 'agenda', 'logout']
   });
 
+  // Load Initial Tasks & Theme
+  useEffect(() => {
+    const savedTasks = localStorage.getItem('ceo_tasks');
+    if (savedTasks) {
+      try { setTasks(JSON.parse(savedTasks)); } catch (e) { console.error(e); }
+    }
+    const savedTheme = localStorage.getItem('ceo_theme') as 'dark' | 'light';
+    if (savedTheme) setTheme(savedTheme);
+  }, []);
+
+  // Sync tasks to LocalStorage whenever they change
+  useEffect(() => {
+    localStorage.setItem('ceo_tasks', JSON.stringify(tasks));
+  }, [tasks]);
+
   useEffect(() => {
     const root = window.document.documentElement;
+    localStorage.setItem('ceo_theme', theme);
     if (theme === 'dark') {
       root.classList.add('dark');
       root.classList.remove('light');
@@ -103,6 +119,19 @@ const App: React.FC = () => {
       setAirQuality({ value: Math.round(pm10), status, face });
     } catch (e) { console.error("Intel fetch failed", e); }
   }, []);
+
+  const fetchTasksFromCloud = useCallback(async () => {
+    if (!storageUrl) return;
+    try {
+      const res = await fetch(`${storageUrl}?action=getTasks`);
+      const data = await res.json();
+      if (data && Array.isArray(data)) {
+        setTasks(data);
+      }
+    } catch (e) {
+      console.warn("Cloud tasks sync unavailable, using local cache.");
+    }
+  }, [storageUrl]);
 
   const fetchGoogleCalendarEvents = useCallback(async (token: string) => {
     setIsLoadingCalendar(true);
@@ -193,8 +222,9 @@ const App: React.FC = () => {
     fetchMails();
     fetchNews();
     fetchIntelligence();
+    fetchTasksFromCloud();
     if (accessToken) fetchGoogleCalendarEvents(accessToken);
-  }, [fetchMails, fetchNews, fetchIntelligence, fetchGoogleCalendarEvents, accessToken]);
+  }, [fetchMails, fetchNews, fetchIntelligence, fetchTasksFromCloud, fetchGoogleCalendarEvents, accessToken]);
 
   useEffect(() => {
     const isUnlocked = localStorage.getItem('ceo_unlocked') === 'true';
@@ -207,11 +237,11 @@ const App: React.FC = () => {
 
   const addTask = (text: string, type: TaskType) => {
     const newTask: Task = { id: Math.random().toString(36).substr(2, 9), text, completed: false, type, createdAt: Date.now() };
-    setTasks([...tasks, newTask]);
+    setTasks(prev => [...prev, newTask]);
   };
 
-  const toggleTask = (id: string) => setTasks(tasks.map(t => t.id === id ? { ...t, completed: !t.completed } : t));
-  const deleteTask = (id: string) => setTasks(tasks.filter(t => t.id !== id));
+  const toggleTask = (id: string) => setTasks(prev => prev.map(t => t.id === id ? { ...t, completed: !t.completed } : t));
+  const deleteTask = (id: string) => setTasks(prev => prev.filter(t => t.id !== id));
 
   const renderWeatherIcon = (code: string) => {
     switch (code) {
@@ -348,7 +378,6 @@ const App: React.FC = () => {
       <div className="max-w-[1600px] mx-auto relative z-10">
         <header className="flex flex-col gap-4 md:gap-8 pt-2 md:pt-10 mb-8 md:mb-16">
           
-          {/* Logo Section (Red Box Area) */}
           <div className="animate-fade-up flex justify-start pl-1">
             <img 
               src={theme === 'dark' ? LOGO_WHITE : LOGO_BLACK} 
@@ -357,7 +386,6 @@ const App: React.FC = () => {
             />
           </div>
 
-          {/* Main Title Section (Light Blue Box Area) */}
           <div className="animate-fade-up flex flex-col md:flex-row md:items-baseline gap-2 md:gap-6">
             <h1 className="text-xl md:text-4xl font-extrabold tracking-[0.3em] text-gray-900 dark:text-white uppercase leading-none">
               CEO <span className="text-gray-400 dark:text-white/10 mx-1 md:mx-2 font-light">_</span> 
@@ -366,30 +394,15 @@ const App: React.FC = () => {
             </h1>
           </div>
 
-          {/* Combined Desktop Bar / Mobile Grid */}
           <div className="w-full animate-fade-up">
-            {/* Desktop Horizontal Bar Layout */}
             <div className="hidden md:flex items-stretch gap-3 bg-white/80 dark:bg-white/5 border border-gray-200 dark:border-white/10 p-3 rounded-[32px] shadow-sm">
-              
-              {/* Left Group (1, 2, 3, 4) */}
               <div className="flex gap-3">
-                {/* 1: Theme Toggle */}
-                <button 
-                  onClick={toggleTheme} 
-                  className="w-[80px] h-[80px] flex items-center justify-center rounded-2xl border border-gray-200 dark:border-white/10 bg-white/90 dark:bg-white/5 text-gray-600 dark:text-white/60 transition-all hover:scale-[1.03] active:scale-95 shadow-sm"
-                >
+                <button onClick={toggleTheme} className="w-[80px] h-[80px] flex items-center justify-center rounded-2xl border border-gray-200 dark:border-white/10 bg-white/90 dark:bg-white/5 text-gray-600 dark:text-white/60 transition-all hover:scale-[1.03] active:scale-95 shadow-sm">
                   {theme === 'dark' ? <Sun size={28} /> : <Moon size={28} />}
                 </button>
-                
-                {/* 2: Settings */}
-                <button 
-                  onClick={() => setShowSettings(!showSettings)} 
-                  className={`w-[80px] h-[80px] flex items-center justify-center rounded-2xl border transition-all hover:scale-[1.03] active:scale-95 shadow-sm ${showSettings ? 'bg-blue-600 border-blue-500 text-white' : 'border-gray-200 dark:border-white/10 bg-white/90 dark:bg-white/5 text-gray-600 dark:text-white/60'}`}
-                >
+                <button onClick={() => setShowSettings(!showSettings)} className={`w-[80px] h-[80px] flex items-center justify-center rounded-2xl border transition-all hover:scale-[1.03] active:scale-95 shadow-sm ${showSettings ? 'bg-blue-600 border-blue-500 text-white' : 'border-gray-200 dark:border-white/10 bg-white/90 dark:bg-white/5 text-gray-600 dark:text-white/60'}`}>
                   <Settings size={28} />
                 </button>
-
-                {/* 3: Weather */}
                 <div className="w-[80px] h-[80px] flex flex-col items-center justify-center rounded-2xl border border-gray-200 dark:border-white/10 bg-white/90 dark:bg-white/5 shadow-sm">
                   {weather ? (
                     <>
@@ -401,8 +414,6 @@ const App: React.FC = () => {
                     </>
                   ) : <div className="w-5 h-5 rounded-full bg-gray-400/20 animate-pulse" />}
                 </div>
-
-                {/* 4: Air Quality */}
                 <div className="w-[80px] h-[80px] flex flex-col items-center justify-center rounded-2xl border border-gray-200 dark:border-white/10 bg-white/90 dark:bg-white/5 px-0.5 shadow-sm">
                   {airQuality ? (
                     <>
@@ -415,7 +426,6 @@ const App: React.FC = () => {
                 </div>
               </div>
 
-              {/* Right Group (5: Clock + Info) - Fills the rest of the bar */}
               <div className="flex-1 flex items-center justify-between px-8 py-2 ml-4 bg-gray-100/50 dark:bg-white/[0.03] border border-gray-100 dark:border-white/5 rounded-2xl">
                 <div className="flex flex-col">
                   <div className="text-gray-400 dark:text-white/30 text-[13px] font-black tracking-[0.2em] uppercase">
@@ -431,7 +441,6 @@ const App: React.FC = () => {
               </div>
             </div>
 
-            {/* Mobile Grid Layout (Responsive fallback) */}
             <div className="grid grid-cols-4 gap-3 sm:gap-4 md:hidden w-full">
               <button onClick={toggleTheme} className="col-span-1 aspect-square flex items-center justify-center rounded-2xl border border-gray-200 dark:border-white/10 bg-white/80 dark:bg-white/5 text-gray-600 dark:text-white/60 shadow-sm">{theme === 'dark' ? <Sun size={24} /> : <Moon size={24} />}</button>
               <button onClick={() => setShowSettings(!showSettings)} className={`col-span-1 aspect-square flex items-center justify-center rounded-2xl border shadow-sm ${showSettings ? 'bg-blue-600 border-blue-500 text-white' : 'border-gray-200 dark:border-white/10 bg-white/80 dark:bg-white/5 text-gray-600 dark:text-white/60'}`}><Settings size={24} /></button>
@@ -457,8 +466,18 @@ const App: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
               <div className="space-y-5">
                 <h3 className="text-[11px] font-black uppercase tracking-[0.5em] text-blue-600 dark:text-blue-500">Cloud Connectivity</h3>
-                <input type="text" placeholder="Storage Endpoint URL" value={storageUrl} onChange={(e) => setStorageUrl(e.target.value)} className="w-full bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl px-5 py-4 text-[10px] font-mono text-gray-600 dark:text-white/40 focus:outline-none" />
-                <button onClick={refreshAll} className="px-6 py-3 rounded-xl bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2"><RefreshCw size={14} /> Global Sync</button>
+                <input 
+                  type="text" 
+                  placeholder="Storage Endpoint URL" 
+                  value={storageUrl} 
+                  onChange={(e) => {
+                    const url = e.target.value;
+                    setStorageUrl(url);
+                    localStorage.setItem('ceo_storage_url', url);
+                  }} 
+                  className="w-full bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl px-5 py-4 text-[10px] font-mono text-gray-600 dark:text-white/40 focus:outline-none" 
+                />
+                <button onClick={refreshAll} className="px-6 py-3 rounded-xl bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-transform active:scale-95"><RefreshCw size={14} /> Global Sync</button>
               </div>
               <div className="space-y-5">
                 <h3 className="text-[11px] font-black uppercase tracking-[0.5em] text-purple-600 dark:text-purple-500">Security</h3>
