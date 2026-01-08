@@ -5,7 +5,6 @@ import UnicornBackground from './components/UnicornBackground';
 import MailCard from './components/MailCard';
 import TaskCard from './components/TaskCard';
 import CalendarCard from './components/CalendarCard';
-import { summarizeExecutiveNews } from './services/geminiService';
 import { 
   Lock, RefreshCw, TrendingUp, ShieldCheck,
   ChevronRight, LogOut, ArrowUpRight, GripVertical,
@@ -64,11 +63,10 @@ const App: React.FC = () => {
     right: ['yesterday', 'agenda', 'logout']
   });
 
-  // State reference for immediate access in callbacks
+  // State reference to prevent stale closure & track sync timing
   const tasksRef = useRef<Task[]>([]);
-  useEffect(() => { tasksRef.current = tasks; }, [tasks]);
+  const lastUserActionTimestamp = useRef<number>(0);
 
-  // Load Initial Cache
   useEffect(() => {
     const savedTasks = localStorage.getItem('ceo_tasks');
     if (savedTasks) {
@@ -96,35 +94,44 @@ const App: React.FC = () => {
 
   const toggleTheme = () => setTheme(prev => prev === 'dark' ? 'light' : 'dark');
 
-  // Cloud Sync Functions
+  // 핵심: 클라우드 저장 로직 (POST) - text/plain 브릿지 사용으로 CORS 우회 및 성공률 극대화
   const saveTasksToCloud = useCallback(async (currentTasks: Task[]) => {
     if (!storageUrl || !unlocked) return;
+    lastUserActionTimestamp.current = Date.now(); // 내가 수정한 시간 기록
     try {
       setIsSyncing(true);
-      // Using standard POST - for Google Apps Script, no-cors is sometimes needed if preflight fails
+      // Google Apps Script는 Content-Type: application/json 에 민감할 수 있으므로
+      // text/plain으로 JSON을 감싸서 보내는 것이 가장 안정적입니다.
       await fetch(storageUrl, {
         method: 'POST',
-        mode: 'no-cors',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({ action: 'saveTasks', tasks: currentTasks })
       });
       localStorage.setItem('ceo_tasks', JSON.stringify(currentTasks));
+      tasksRef.current = currentTasks;
     } catch (e) {
-      console.error("Cloud save failed", e);
+      console.error("Cloud save error", e);
     } finally {
-      setTimeout(() => setIsSyncing(false), 1000);
+      setTimeout(() => setIsSyncing(false), 800);
     }
   }, [storageUrl, unlocked]);
 
+  // 핵심: 클라우드 불러오기 로직 (GET)
   const fetchTasksFromCloud = useCallback(async () => {
     if (!storageUrl || !unlocked) return;
+    
+    // 사용자가 방금(최근 5초 이내) 액션을 취했다면 클라우드 데이터를 덮어쓰지 않음
+    if (Date.now() - lastUserActionTimestamp.current < 5000) return;
+
     try {
       const res = await fetch(`${storageUrl}?action=getTasks&t=${Date.now()}`);
       const data = await res.json();
+      
       if (data && Array.isArray(data)) {
-        // Only update if cloud data is different to avoid unnecessary re-renders
+        // 클라우드 데이터가 있고, 현재 로컬 데이터와 다를 때만 업데이트
         if (JSON.stringify(data) !== JSON.stringify(tasksRef.current)) {
           setTasks(data);
+          tasksRef.current = data;
           localStorage.setItem('ceo_tasks', JSON.stringify(data));
         }
       }
@@ -216,16 +223,16 @@ const App: React.FC = () => {
     setIsSyncing(false);
   }, [fetchMails, fetchNews, fetchIntelligence, fetchTasksFromCloud]);
 
-  // Periodic and Visibility Sync
+  // 주기적 동기화 및 가시성 기반 동기화 (기기 연동의 핵심)
   useEffect(() => {
     if (unlocked) {
       refreshAll();
       
-      const syncInterval = setInterval(refreshAll, 20000); // Higher frequency (20s) for better device linkage
+      const syncInterval = setInterval(refreshAll, 10000); // 10초 주기로 더 공격적인 동기화
       
       const handleVisibilityChange = () => {
         if (document.visibilityState === 'visible') {
-          console.log("App focused, triggering neural sync...");
+          console.log("Strategic Grid Refocus: Syncing...");
           refreshAll();
         }
       };
@@ -248,23 +255,26 @@ const App: React.FC = () => {
     return () => clearInterval(timer);
   }, []);
 
-  // Action Handlers
+  // 사용자 액션: 즉각 반영 및 클라우드 전송
   const addTask = (text: string, type: TaskType) => {
     const newTask: Task = { id: Math.random().toString(36).substr(2, 9), text, completed: false, type, createdAt: Date.now() };
     const updatedTasks = [...tasks, newTask];
     setTasks(updatedTasks);
+    tasksRef.current = updatedTasks;
     saveTasksToCloud(updatedTasks);
   };
 
   const toggleTask = (id: string) => {
     const updatedTasks = tasks.map(t => t.id === id ? { ...t, completed: !t.completed } : t);
     setTasks(updatedTasks);
+    tasksRef.current = updatedTasks;
     saveTasksToCloud(updatedTasks);
   };
 
   const deleteTask = (id: string) => {
     const updatedTasks = tasks.filter(t => t.id !== id);
     setTasks(updatedTasks);
+    tasksRef.current = updatedTasks;
     saveTasksToCloud(updatedTasks);
   };
 
@@ -452,7 +462,7 @@ const App: React.FC = () => {
                     {currentTime.toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'short' })}
                   </div>
                   <div className={`text-[10px] font-bold tracking-[0.25em] uppercase mt-1 transition-colors duration-500 ${isSyncing ? 'text-blue-500 animate-pulse' : 'text-emerald-500 opacity-60'}`}>
-                    {isSyncing ? 'Neural Bridge Active...' : 'Strategic Grid Balanced'}
+                    {isSyncing ? 'Synchronizing Neural Link...' : 'Strategic Grid Balanced'}
                   </div>
                 </div>
                 <div className="text-gray-900 dark:text-white text-5xl font-black tracking-tighter leading-none tabular-nums relative z-10">
@@ -479,7 +489,7 @@ const App: React.FC = () => {
                   }} 
                   className="w-full bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl px-5 py-4 text-[10px] font-mono text-gray-600 dark:text-white/40 focus:outline-none" 
                 />
-                <button onClick={refreshAll} className="px-6 py-3 rounded-xl bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-transform active:scale-95"><RefreshCw size={14} /> Refresh Neural Grid</button>
+                <button onClick={refreshAll} className="px-6 py-3 rounded-xl bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-transform active:scale-95"><RefreshCw size={14} /> Global Refresh</button>
               </div>
               <div className="space-y-5">
                 <h3 className="text-[11px] font-black uppercase tracking-[0.5em] text-purple-600 dark:text-purple-500">Security</h3>
