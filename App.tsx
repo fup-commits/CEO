@@ -4,11 +4,10 @@ import { Task, TaskType, Mail, NewsItem } from './types';
 import UnicornBackground from './components/UnicornBackground';
 import MailCard from './components/MailCard';
 import TaskCard from './components/TaskCard';
-import { summarizeExecutiveNews } from './services/geminiService';
 import { 
   Lock, Clock, Calendar as CalendarIcon, 
   RefreshCw, TrendingUp, ShieldCheck,
-  ChevronRight, Sparkles, LogOut, ArrowUpRight
+  ChevronRight, LogOut, ArrowUpRight, GripVertical
 } from 'lucide-react';
 
 const PIN_CODE = '0925';
@@ -30,16 +29,29 @@ const App: React.FC = () => {
   const [news, setNews] = useState<NewsItem[]>([]);
   const [personalMails, setPersonalMails] = useState<Mail[]>([]);
   const [companyMails, setCompanyMails] = useState<Mail[]>([]);
-  const [aiSummary, setAiSummary] = useState<string>('');
   const [isLoadingNews, setIsLoadingNews] = useState(false);
   const [isLoadingMails, setIsLoadingMails] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
 
+  // 대시보드 레이아웃 순서 상태
+  const [layout, setLayout] = useState({
+    top: ['comms'],
+    left: ['tasks', 'news'],
+    right: ['yesterday', 'agenda', 'logout']
+  });
+
+  const [draggedId, setDraggedId] = useState<{ id: string, section: 'top' | 'left' | 'right' } | null>(null);
+
   useEffect(() => {
     const isUnlocked = localStorage.getItem('ceo_unlocked') === 'true';
     if (isUnlocked) setUnlocked(true);
+    
     const savedTasks = localStorage.getItem('ceo_tasks');
     if (savedTasks) setTasks(JSON.parse(savedTasks));
+
+    const savedLayout = localStorage.getItem('ceo_layout');
+    if (savedLayout) setLayout(JSON.parse(savedLayout));
+
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
@@ -132,10 +144,6 @@ const App: React.FC = () => {
         }
       }
       setNews(allNews);
-      if (allNews.length > 0) {
-        const summary = await summarizeExecutiveNews(allNews);
-        setAiSummary(summary);
-      }
     } catch (error) {
       console.error(error);
     } finally {
@@ -153,6 +161,115 @@ const App: React.FC = () => {
       refreshAll();
     }
   }, [unlocked, refreshAll]);
+
+  // Drag and Drop 핸들러
+  const onDragStart = (id: string, section: 'top' | 'left' | 'right') => {
+    setDraggedId({ id, section });
+  };
+
+  const onDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+  };
+
+  const onDrop = (targetId: string, targetSection: 'top' | 'left' | 'right') => {
+    if (!draggedId || draggedId.section !== targetSection) return;
+
+    const newLayout = { ...layout };
+    const sectionList = [...newLayout[targetSection]];
+    const draggedIndex = sectionList.indexOf(draggedId.id);
+    const targetIndex = sectionList.indexOf(targetId);
+
+    sectionList.splice(draggedIndex, 1);
+    sectionList.splice(targetIndex, 0, draggedId.id);
+
+    newLayout[targetSection] = sectionList;
+    setLayout(newLayout);
+    localStorage.setItem('ceo_layout', JSON.stringify(newLayout));
+    setDraggedId(null);
+  };
+
+  const renderSection = (id: string) => {
+    switch (id) {
+      case 'comms':
+        return (
+          <section className="mb-12 animate-fade-up">
+            <div className="flex items-center justify-between mb-8">
+              <div className="flex items-center gap-3">
+                <ShieldCheck size={16} className="text-blue-400/60" />
+                <h2 className="text-[11px] font-bold tracking-[0.4em] text-white/40 uppercase">Communications</h2>
+              </div>
+              <button onClick={refreshAll} className="text-white/20 hover:text-white transition-colors">
+                <RefreshCw size={14} className={isLoadingMails ? 'animate-spin' : ''} />
+              </button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <MailCard title="Work Gmail" mails={companyMails} isLoading={isLoadingMails} />
+              <MailCard title="Personal Gmail" mails={personalMails} isLoading={isLoadingMails} />
+              <MailCard title="Work Naver" mails={companyMails.filter(m => m.isNaver)} isLoading={isLoadingMails} isNaverAuto />
+              <MailCard title="Personal Naver" mails={personalMails.filter(m => m.isNaver)} isLoading={isLoadingMails} isNaverAuto />
+            </div>
+          </section>
+        );
+      case 'tasks':
+        return (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+            <TaskCard title="Today's Priorities" type={TaskType.TODAY} tasks={tasks.filter(t => t.type === TaskType.TODAY)} onAddTask={addTask} onToggleTask={toggleTask} onDeleteTask={deleteTask} className="h-[450px]" />
+            <TaskCard title="Executive Checklist" type={TaskType.CHECKLIST} tasks={tasks.filter(t => t.type === TaskType.CHECKLIST)} onAddTask={addTask} onToggleTask={toggleTask} onDeleteTask={deleteTask} className="h-[450px]" />
+          </div>
+        );
+      case 'news':
+        return (
+          <div className="glass-panel p-10 min-h-[500px]">
+            <div className="flex items-center justify-between mb-10">
+              <div className="flex items-center gap-3">
+                <TrendingUp size={18} className="text-orange-400/60" />
+                <h3 className="text-[11px] font-bold tracking-[0.4em] text-white/40 uppercase">Strategic Intelligence</h3>
+              </div>
+              <button onClick={fetchNews} className="text-white/20 hover:text-white transition-colors">
+                <RefreshCw size={16} className={isLoadingNews ? 'animate-spin' : ''} />
+              </button>
+            </div>
+
+            <div className="grid gap-10">
+              {news.map((item, idx) => (
+                <div key={idx} className="group flex flex-col gap-2">
+                  <div className="flex items-center gap-3">
+                    <span className="text-[10px] font-bold text-white/20 uppercase tracking-widest">{item.source}</span>
+                    <div className="h-[1px] flex-1 bg-white/5"></div>
+                    <span className="text-[10px] text-white/20">{item.pubDate}</span>
+                  </div>
+                  <a href={item.link} target="_blank" rel="noopener noreferrer" className="text-lg font-normal text-white/70 group-hover:text-white transition-all flex items-center justify-between leading-snug tracking-tight">
+                    {item.title}
+                    <ArrowUpRight size={18} className="opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-all duration-300 shrink-0 ml-4" />
+                  </a>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      case 'yesterday':
+        return <TaskCard title="Yesterday Review" type={TaskType.YESTERDAY} tasks={tasks.filter(t => t.type === TaskType.YESTERDAY)} onAddTask={addTask} onToggleTask={toggleTask} onDeleteTask={deleteTask} className="h-[320px] mb-8" />;
+      case 'agenda':
+        return (
+          <div className="glass-panel p-8 min-h-[350px] mb-8">
+            <h3 className="text-[11px] font-bold tracking-[0.4em] text-white/40 uppercase mb-10">Agenda</h3>
+            <div className="space-y-8">
+              <div className="relative pl-6"><div className="absolute left-0 top-1 bottom-1 w-[2px] bg-blue-500"></div><div className="text-[10px] text-white/30 font-bold uppercase mb-1">09:00 — 10:30</div><div className="text-base font-medium text-white/90">Internal Strategy Board</div></div>
+              <div className="relative pl-6 opacity-40"><div className="absolute left-0 top-1 bottom-1 w-[2px] bg-purple-500"></div><div className="text-[10px] text-white/30 font-bold uppercase mb-1">13:00 — 14:30</div><div className="text-base font-normal text-white">Global Partners Sync</div></div>
+              <div className="relative pl-6 opacity-40"><div className="absolute left-0 top-1 bottom-1 w-[2px] bg-orange-500"></div><div className="text-[10px] text-white/30 font-bold uppercase mb-1">16:30 — 17:00</div><div className="text-base font-normal text-white">Advisory Panel Call</div></div>
+            </div>
+          </div>
+        );
+      case 'logout':
+        return (
+          <button onClick={handleLogout} className="w-full glass-panel p-6 flex items-center justify-center gap-4 text-red-400/40 hover:text-red-400 hover:bg-red-400/5 transition-all text-[11px] font-bold uppercase tracking-[0.3em]">
+            <LogOut size={16} strokeWidth={1.5} /> Terminate Session
+          </button>
+        );
+      default:
+        return null;
+    }
+  };
 
   if (!unlocked) {
     return (
@@ -222,87 +339,60 @@ const App: React.FC = () => {
           </div>
         </header>
 
-        <section className="mb-12 animate-fade-up" style={{ animationDelay: '0.2s' }}>
-          <div className="flex items-center justify-between mb-8">
-            <div className="flex items-center gap-3">
-              <ShieldCheck size={16} className="text-blue-400/60" />
-              <h2 className="text-[11px] font-bold tracking-[0.4em] text-white/40 uppercase">Communications</h2>
+        {/* 상단 섹션 (커뮤니케이션 등) */}
+        {layout.top.map((id) => (
+          <div 
+            key={id} 
+            draggable 
+            onDragStart={() => onDragStart(id, 'top')}
+            onDragOver={onDragOver}
+            onDrop={() => onDrop(id, 'top')}
+            className="relative group mb-4"
+          >
+            <div className="absolute -left-6 top-0 bottom-0 flex items-center opacity-0 group-hover:opacity-40 transition-opacity cursor-grab active:cursor-grabbing">
+              <GripVertical size={20} />
             </div>
-            <button onClick={refreshAll} className="text-white/20 hover:text-white transition-colors">
-              <RefreshCw size={14} className={isLoadingMails ? 'animate-spin' : ''} />
-            </button>
+            {renderSection(id)}
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <MailCard title="Work Gmail" mails={companyMails} isLoading={isLoadingMails} />
-            <MailCard title="Personal Gmail" mails={personalMails} isLoading={isLoadingMails} />
-            <MailCard title="Work Naver" mails={companyMails.filter(m => m.isNaver)} isLoading={isLoadingMails} isNaverAuto />
-            <MailCard title="Personal Naver" mails={personalMails.filter(m => m.isNaver)} isLoading={isLoadingMails} isNaverAuto />
-          </div>
-        </section>
+        ))}
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start pb-20">
-          <div className="lg:col-span-8 space-y-8">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              <TaskCard title="Today's Priorities" type={TaskType.TODAY} tasks={tasks.filter(t => t.type === TaskType.TODAY)} onAddTask={addTask} onToggleTask={toggleTask} onDeleteTask={deleteTask} className="h-[450px] animate-fade-up" />
-              <TaskCard title="Executive Checklist" type={TaskType.CHECKLIST} tasks={tasks.filter(t => t.type === TaskType.CHECKLIST)} onAddTask={addTask} onToggleTask={toggleTask} onDeleteTask={deleteTask} className="h-[450px] animate-fade-up" />
-            </div>
-
-            <div className="glass-panel p-10 min-h-[500px] animate-fade-up">
-              <div className="flex items-center justify-between mb-10">
-                <div className="flex items-center gap-3">
-                  <TrendingUp size={18} className="text-orange-400/60" />
-                  <h3 className="text-[11px] font-bold tracking-[0.4em] text-white/40 uppercase">Strategic Intelligence</h3>
+          {/* 왼쪽 컬럼 (8/12) */}
+          <div className="lg:col-span-8 space-y-4">
+            {layout.left.map((id) => (
+              <div 
+                key={id} 
+                draggable 
+                onDragStart={() => onDragStart(id, 'left')}
+                onDragOver={onDragOver}
+                onDrop={() => onDrop(id, 'left')}
+                className="relative group"
+              >
+                <div className="absolute -left-6 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-40 transition-opacity cursor-grab active:cursor-grabbing">
+                  <GripVertical size={20} />
                 </div>
-                <button onClick={fetchNews} className="text-white/20 hover:text-white transition-colors">
-                  <RefreshCw size={16} className={isLoadingNews ? 'animate-spin' : ''} />
-                </button>
+                {renderSection(id)}
               </div>
-
-              {aiSummary && (
-                <div className="mb-12 relative p-8 bg-white/[0.02] border border-white/[0.05] rounded-3xl">
-                  <div className="flex items-center gap-3 mb-4">
-                    <Sparkles size={14} className="text-blue-300" />
-                    <span className="text-[10px] font-bold uppercase tracking-[0.3em] text-blue-300/80">AI Analysis Briefing</span>
-                  </div>
-                  <p className="text-xl font-light text-white/90 leading-relaxed tracking-tight">
-                    {aiSummary}
-                  </p>
-                </div>
-              )}
-
-              <div className="grid gap-10">
-                {news.map((item, idx) => (
-                  <div key={idx} className="group flex flex-col gap-2">
-                    <div className="flex items-center gap-3">
-                      <span className="text-[10px] font-bold text-white/20 uppercase tracking-widest">{item.source}</span>
-                      <div className="h-[1px] flex-1 bg-white/5"></div>
-                      <span className="text-[10px] text-white/20">{item.pubDate}</span>
-                    </div>
-                    <a href={item.link} target="_blank" rel="noopener noreferrer" className="text-lg font-normal text-white/70 group-hover:text-white transition-all flex items-center justify-between leading-snug tracking-tight">
-                      {item.title}
-                      <ArrowUpRight size={18} className="opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-all duration-300 shrink-0 ml-4" />
-                    </a>
-                  </div>
-                ))}
-              </div>
-            </div>
+            ))}
           </div>
 
-          <div className="lg:col-span-4 space-y-8 animate-fade-up" style={{ animationDelay: '0.3s' }}>
-            <TaskCard title="Yesterday Review" type={TaskType.YESTERDAY} tasks={tasks.filter(t => t.type === TaskType.YESTERDAY)} onAddTask={addTask} onToggleTask={toggleTask} onDeleteTask={deleteTask} className="h-[320px]" />
-            
-            <div className="glass-panel p-8 min-h-[350px]">
-              <h3 className="text-[11px] font-bold tracking-[0.4em] text-white/40 uppercase mb-10">Agenda</h3>
-              <div className="space-y-8">
-                <div className="relative pl-6"><div className="absolute left-0 top-1 bottom-1 w-[2px] bg-blue-500"></div><div className="text-[10px] text-white/30 font-bold uppercase mb-1">09:00 — 10:30</div><div className="text-base font-medium text-white/90">Internal Strategy Board</div></div>
-                <div className="relative pl-6 opacity-40"><div className="absolute left-0 top-1 bottom-1 w-[2px] bg-purple-500"></div><div className="text-[10px] text-white/30 font-bold uppercase mb-1">13:00 — 14:30</div><div className="text-base font-normal text-white">Global Partners Sync</div></div>
-                <div className="relative pl-6 opacity-40"><div className="absolute left-0 top-1 bottom-1 w-[2px] bg-orange-500"></div><div className="text-[10px] text-white/30 font-bold uppercase mb-1">16:30 — 17:00</div><div className="text-base font-normal text-white">Advisory Panel Call</div></div>
+          {/* 오른쪽 컬럼 (4/12) */}
+          <div className="lg:col-span-4 space-y-4">
+            {layout.right.map((id) => (
+              <div 
+                key={id} 
+                draggable 
+                onDragStart={() => onDragStart(id, 'right')}
+                onDragOver={onDragOver}
+                onDrop={() => onDrop(id, 'right')}
+                className="relative group"
+              >
+                <div className="absolute -left-6 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-40 transition-opacity cursor-grab active:cursor-grabbing">
+                  <GripVertical size={20} />
+                </div>
+                {renderSection(id)}
               </div>
-            </div>
-
-            <button onClick={handleLogout} className="w-full glass-panel p-6 flex items-center justify-center gap-4 text-red-400/40 hover:text-red-400 hover:bg-red-400/5 transition-all text-[11px] font-bold uppercase tracking-[0.3em]">
-              <LogOut size={16} strokeWidth={1.5} /> Terminate Session
-            </button>
+            ))}
           </div>
         </div>
       </div>
